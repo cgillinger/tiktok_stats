@@ -1,0 +1,200 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 98%; /* Ljus bakgrund */
+    --foreground: 0 0% 10%; /* Nästan svart text */
+    
+    --primary: 335 100% 50%; /* TikTok röd */
+    --primary-foreground: 0 0% 100%; /* Vit text på röd bakgrund */
+
+    --secondary: 180 100% 60%; /* TikTok cyan */
+    --secondary-foreground: 0 0% 0%; /* Svart text på cyan */
+
+    --accent: 200 100% 40%; /* TikTok blå */
+    --accent-foreground: 0 0% 100%; /* Vit text på blå */
+
+    --muted: 0 0% 94%; /* Ljusgrå */
+    --muted-foreground: 0 0% 40%; /* Mörkare grå text */
+
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: 335 100% 50%;
+
+    --radius: 0.75rem;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* 🌟 KOMPOSITIONER FÖR DESIGN */
+@layer components {
+  
+  /* 🌍 Global container för centrering och layout */
+  .container {
+    @apply max-w-6xl mx-auto px-6;
+  }
+
+  .section {
+    @apply mb-12;
+  }
+
+  .section-title {
+    @apply text-2xl font-bold text-gray-800 mb-4;
+  }
+
+  /* 🏷 KORTSTIL - Ren, modern TikTok-inspirerad design */
+  .card {
+    @apply bg-white shadow-lg rounded-2xl p-6 border border-gray-100;
+  }
+
+  /* 📊 TABELLSTIL - TikTok-inspirerad tabell */
+  .table {
+    @apply min-w-full bg-white shadow-md rounded-xl overflow-hidden;
+  }
+
+  .table thead {
+    @apply bg-gradient-to-r from-primary to-secondary text-white;
+  }
+
+  .table th {
+    @apply px-6 py-3 text-left text-sm font-semibold;
+  }
+
+  .table td {
+    @apply px-6 py-4 border-gray-100 border-b text-gray-800;
+  }
+
+  .table tr:nth-child(even) {
+    @apply bg-gray-50;
+  }
+
+  .table tr:hover {
+    @apply bg-muted transition-colors duration-150;
+  }
+
+  /* 🔘 KNAPPAR - Primär, Sekundär, Outline */
+  .btn {
+    @apply px-4 py-2 rounded-lg font-semibold transition duration-200 shadow-sm;
+  }
+
+  .btn-primary {
+    @apply bg-gradient-to-r from-primary to-secondary text-white hover:shadow-md active:opacity-90;
+  }
+
+  .btn-secondary {
+    @apply bg-secondary text-white hover:bg-opacity-90 active:bg-opacity-100;
+  }
+
+  .btn-accent {
+    @apply bg-accent text-white hover:bg-opacity-90 active:bg-opacity-100;
+  }
+
+  .btn-outline {
+    @apply border border-gray-300 text-gray-800 hover:bg-gray-100;
+  }
+
+  /* 📝 INPUT-FÄLT & DROPDOWN */
+  .input {
+    @apply w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary focus:border-transparent;
+  }
+
+  .select {
+    @apply w-full px-4 py-2 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-primary focus:border-transparent;
+  }
+
+  /* 📌 FLEXBOX FÖR RUBRIKER OCH TIKTOK BRANDING */
+  .header {
+    @apply flex justify-between items-center mb-6;
+  }
+
+  .header-title {
+    @apply text-2xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent;
+  }
+
+  .header-subtitle {
+    @apply text-gray-500 text-sm mt-1;
+  }
+
+  .tiktok-brand {
+    @apply flex items-center gap-2;
+  }
+
+  /* 📊 STATISTIK KORT */
+  .stat-card {
+    @apply bg-white rounded-xl shadow-md p-4 border border-gray-100;
+  }
+
+  .stat-title {
+    @apply text-sm text-gray-500 font-medium;
+  }
+
+  .stat-value {
+    @apply text-2xl font-bold mt-1 text-gray-800;
+  }
+
+  .stat-trend {
+    @apply text-xs mt-2 flex items-center;
+  }
+
+  .stat-trend-up {
+    @apply text-green-600;
+  }
+
+  .stat-trend-down {
+    @apply text-red-600;
+  }
+
+  /* 🔄 LOADER & STATUS */
+  .loader {
+    @apply flex justify-center items-center p-4;
+  }
+
+  .loader-spinner {
+    @apply h-8 w-8 rounded-full border-4 border-gray-200 border-t-primary animate-spin;
+  }
+
+  .status-badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .status-badge-success {
+    @apply bg-green-100 text-green-800;
+  }
+
+  .status-badge-warning {
+    @apply bg-yellow-100 text-yellow-800;
+  }
+
+  .status-badge-error {
+    @apply bg-red-100 text-red-800;
+  }
+
+  /* 🔢 ACCOUNT BADGE */
+  .account-badge {
+    @apply inline-flex items-center gap-2 px-2 py-1 rounded-lg text-sm font-medium;
+  }
+
+  .account-badge-complete {
+    @apply bg-green-100 text-green-800;
+  }
+
+  .account-badge-partial {
+    @apply bg-yellow-100 text-yellow-800;
+  }
+
+  .account-badge-empty {
+    @apply bg-gray-100 text-gray-800;
+  }
+
+  /* 🖥 RESPONSIVITET */
+  @media (max-width: 768px) {
+    .container {
+      @apply px-4;
+    }
+  }
+}
