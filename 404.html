@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>TikTok Statistik</title>
+  <script type="text/javascript">
+    // Omdirigera alla 404-fel till index.html för att hantera klientrutter
+    var pathSegmentsToKeep = 1;
+    var l = window.location;
+    
+    // Repo-namn i GitHub Pages URL-strukturen
+    var repoName = "/tiktok_stats";
+    
+    l.replace(
+      l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
+      repoName + '/?p=/' +
+      l.pathname.slice(repoName.length).split('/').slice(pathSegmentsToKeep).join('/') +
+      (l.search ? '&q=' + l.search.slice(1) : '') +
+      l.hash
+    );
+  </script>
+</head>
+<body>
+  Omdirigerar...
+</body>
+</html>
