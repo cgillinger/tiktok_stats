@@ -294,77 +294,59 @@ export function MainView() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {/* Display the field selection UI based on activeTab without tabs UI */}
-              <div className="flex space-x-4 mb-4">
-                <button 
-                  onClick={() => setActiveTab('summary')}
-                  className={`px-3 py-1.5 rounded-md text-sm font-medium ${activeTab === 'summary' 
-                    ? 'bg-background shadow-sm text-foreground' 
-                    : 'text-muted-foreground hover:bg-muted/30'}`}
-                >
-                  Översiktsdata
-                </button>
-                <button 
-                  onClick={() => setActiveTab('video')}
-                  className={`px-3 py-1.5 rounded-md text-sm font-medium ${activeTab === 'video' 
-                    ? 'bg-background shadow-sm text-foreground' 
-                    : 'text-muted-foreground hover:bg-muted/30'}`}
-                >
-                  Videodata
-                </button>
-              </div>
-              
-              {activeTab === 'summary' && (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                  {Object.entries(SUMMARY_VIEW_AVAILABLE_FIELDS).map(([key, label]) => (
-                    <div key={key} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={`summary-${key}`}
-                        checked={selectedSummaryFields.includes(key)}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setSelectedSummaryFields([...selectedSummaryFields, key]);
-                          } else {
-                            setSelectedSummaryFields(selectedSummaryFields.filter(f => f !== key));
-                          }
-                        }}
-                      />
-                      <Label htmlFor={`summary-${key}`}>{label}</Label>
-                    </div>
-                  ))}
-                </div>
-              )}
-              
-              {activeTab === 'video' && (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                  {Object.entries(VIDEO_VIEW_AVAILABLE_FIELDS).map(([key, label]) => (
-                    <div key={key} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={`video-${key}`}
-                        checked={selectedVideoFields.includes(key)}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setSelectedVideoFields([...selectedVideoFields, key]);
-                          } else {
-                            setSelectedVideoFields(selectedVideoFields.filter(f => f !== key));
-                          }
-                        }}
-                      />
-                      <Label htmlFor={`video-${key}`}>{label}</Label>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <Tabs value={activeTab} onValueChange={setActiveTab}>
+                <TabsList className="mb-4">
+                  <TabsTrigger value="summary">Översiktsdata</TabsTrigger>
+                  <TabsTrigger value="video">Videodata</TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="summary">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                    {Object.entries(SUMMARY_VIEW_AVAILABLE_FIELDS).map(([key, label]) => (
+                      <div key={key} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`summary-${key}`}
+                          checked={selectedSummaryFields.includes(key)}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setSelectedSummaryFields([...selectedSummaryFields, key]);
+                            } else {
+                              setSelectedSummaryFields(selectedSummaryFields.filter(f => f !== key));
+                            }
+                          }}
+                        />
+                        <Label htmlFor={`summary-${key}`}>{label}</Label>
+                      </div>
+                    ))}
+                  </div>
+                </TabsContent>
+                
+                <TabsContent value="video">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                    {Object.entries(VIDEO_VIEW_AVAILABLE_FIELDS).map(([key, label]) => (
+                      <div key={key} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`video-${key}`}
+                          checked={selectedVideoFields.includes(key)}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setSelectedVideoFields([...selectedVideoFields, key]);
+                            } else {
+                              setSelectedVideoFields(selectedVideoFields.filter(f => f !== key));
+                            }
+                          }}
+                        />
+                        <Label htmlFor={`video-${key}`}>{label}</Label>
+                      </div>
+                    ))}
+                  </div>
+                </TabsContent>
+              </Tabs>
             </CardContent>
           </Card>
           
-          {/* Data-innehåll med TabsList - keep this one */}
+          {/* Data-innehåll - ta bort den översta TabsList */}
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="mb-4">
-              <TabsTrigger value="summary">Översiktsdata</TabsTrigger>
-              <TabsTrigger value="video">Videodata</TabsTrigger>
-            </TabsList>
-            
             <TabsContent value="summary">
               <SummaryView 
                 data={summaryData} 

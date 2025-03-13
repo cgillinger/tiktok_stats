@@ -8,6 +8,9 @@
  */
 import { STORAGE_KEYS, CSV_TYPES } from './constants';
 
+// Keep a reference to the database instance to prevent re-opening the connection
+let dbInstance = null;
+
 // ----------------------------------------
 // IndexedDB hantering
 // ----------------------------------------
@@ -45,9 +48,23 @@ const openDatabase = () => {
     };
     
     request.onsuccess = (event) => {
-      resolve(event.target.result);
+      // Store the db instance for reuse
+      dbInstance = event.target.result;
+      resolve(dbInstance);
     };
   });
+};
+
+/**
+ * Get database instance - reuse existing connection if available
+ * @returns {Promise<IDBDatabase>} - Database reference
+ */
+const getDatabase = async () => {
+  if (dbInstance) {
+    return dbInstance;
+  }
+  
+  return await openDatabase();
 };
 
 /**
@@ -57,7 +74,7 @@ const openDatabase = () => {
  * @returns {Promise<number>} - ID för sparat objekt
  */
 const saveToIndexedDB = async (storeName, data) => {
-  const db = await openDatabase();
+  const db = await getDatabase();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([storeName], 'readwrite');
     const store = transaction.objectStore(storeName);
@@ -74,7 +91,7 @@ const saveToIndexedDB = async (storeName, data) => {
  * @returns {Promise<Array>} - Array med alla objekt
  */
 const getAllFromIndexedDB = async (storeName) => {
-  const db = await openDatabase();
+  const db = await getDatabase();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([storeName], 'readonly');
     const store = transaction.objectStore(storeName);
@@ -93,7 +110,7 @@ const getAllFromIndexedDB = async (storeName) => {
  * @returns {Promise<Array>} - Array med matchande objekt
  */
 const getByIndex = async (storeName, indexName, value) => {
-  const db = await openDatabase();
+  const db = await getDatabase();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([storeName], 'readonly');
     const store = transaction.objectStore(storeName);
@@ -112,7 +129,7 @@ const getByIndex = async (storeName, indexName, value) => {
  * @returns {Promise<Object>} - Det hämtade objektet
  */
 const getById = async (storeName, id) => {
-  const db = await openDatabase();
+  const db = await getDatabase();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([storeName], 'readonly');
     const store = transaction.objectStore(storeName);
@@ -130,7 +147,7 @@ const getById = async (storeName, id) => {
  * @returns {Promise<boolean>} - true om borttagningen lyckades
  */
 const deleteById = async (storeName, id) => {
-  const db = await openDatabase();
+  const db = await getDatabase();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([storeName], 'readwrite');
     const store = transaction.objectStore(storeName);

@@ -151,12 +151,11 @@ const calculateOverviewFields = (row) => {
 const calculateVideoFields = (row) => {
   const result = { ...row };
   
-  // Beräkna interaktioner: summan av likes, comments, shares och favorites
+  // Beräkna interaktioner: summan av likes, comments och shares (utan favorites)
   const likes = parseFloat(row.likes || 0);
   const comments = parseFloat(row.comments || 0);
   const shares = parseFloat(row.shares || 0);
-  const favorites = parseFloat(row.favorites || 0);
-  result.interactions = likes + comments + shares + favorites;
+  result.interactions = likes + comments + shares;
   
   // Beräkna engagemangsnivå: interaktioner / views * 100
   if (row.views && row.views > 0) {
@@ -206,6 +205,14 @@ export const processTikTokData = (csvContent, columnMappings, forcedType = null)
             processedData = mappedData.map(calculateOverviewFields);
           } else {
             processedData = mappedData.map(calculateVideoFields);
+          }
+          
+          // Lägg till publication_count om det är VIDEO data
+          if (csvType === CSV_TYPES.VIDEO) {
+            // Beräkna antal publiceringar (1 per video)
+            processedData.forEach(item => {
+              item.publication_count = 1;
+            });
           }
           
           // Hitta datumintervall för metadata

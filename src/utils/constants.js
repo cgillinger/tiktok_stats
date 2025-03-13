@@ -91,6 +91,7 @@ export const VIDEO_FIELDS = {
 export const VIDEO_CALCULATED_FIELDS = {
   'interactions': 'Interaktioner',
   'engagement_rate': 'Engagemangsnivå (%)',
+  'publication_count': 'Antal publiceringar',
 };
 
 // Alla tillgängliga videofält (inklusive beräknade)
@@ -123,6 +124,7 @@ export const VIDEO_VIEW_AVAILABLE_FIELDS = {
   'favorites': 'Lägg till i Favoriter',
   'interactions': 'Interaktioner',
   'engagement_rate': 'Engagemangsnivå (%)',
+  'publication_count': 'Antal publiceringar',
 };
 
 // Lagrings begränsningar

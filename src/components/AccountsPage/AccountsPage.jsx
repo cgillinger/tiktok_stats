@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -10,7 +10,8 @@ import {
   CheckCircle2, 
   Upload, 
   Plus,
-  Loader2
+  Loader2,
+  RefreshCw
 } from 'lucide-react';
 import { AccountList } from '../AccountManager/AccountList';
 import { AccountForm } from '../AccountManager/AccountForm';
@@ -41,10 +42,18 @@ export function AccountsPage({ onBack }) {
   const [formMode, setFormMode] = useState(null); // 'create', 'edit', or null
   const [accountToEdit, setAccountToEdit] = useState(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState(null);
+  const [resetConfirmation, setResetConfirmation] = useState(false);
   const [uploadMode, setUploadMode] = useState(null); // 'overview', 'video', or null
   const [newAccountName, setNewAccountName] = useState('');
   const [isAddingAccount, setIsAddingAccount] = useState(false);
   const [successMessage, setSuccessMessage] = useState(null);
+
+  // Starta med kontoeditor direkt om användaren kommer från "Lägg till första konto"
+  useEffect(() => {
+    if (accounts.length === 0) {
+      setIsAddingAccount(true);
+    }
+  }, [accounts]);
 
   // Handle account selection
   const handleAccountSelect = (accountId) => {
@@ -85,6 +94,41 @@ export function AccountsPage({ onBack }) {
       } catch (err) {
         console.error('Fel vid borttagning av konto:', err);
       }
+    }
+  };
+
+  // Show confirmation for resetting all data
+  const handleResetClick = () => {
+    setResetConfirmation(true);
+  };
+
+  // Confirm reset all data
+  const handleResetConfirm = async () => {
+    try {
+      // Rensa localStorage
+      localStorage.clear();
+
+      // Visa IndexedDB-databasen för att radera den
+      const deleteRequest = window.indexedDB.deleteDatabase('TikTokStatisticsDB');
+
+      deleteRequest.onsuccess = function() {
+        showSuccessMessage('All data har återställts. Ladda om sidan för att starta om.');
+        
+        // Visa en knapp för att ladda om sidan
+        setTimeout(() => {
+          window.location.reload();
+        }, 2000);
+      };
+
+      deleteRequest.onerror = function(event) {
+        console.error('Fel vid återställning av data:', event);
+        setError('Kunde inte återställa all data. Försök att ladda om sidan.');
+      };
+
+      setResetConfirmation(false);
+    } catch (err) {
+      console.error('Fel vid återställning av data:', err);
+      setError('Kunde inte återställa all data. Försök att ladda om sidan.');
     }
   };
 
@@ -156,6 +200,7 @@ export function AccountsPage({ onBack }) {
     setFormMode(null);
     setAccountToEdit(null);
     setDeleteConfirmation(null);
+    setResetConfirmation(false);
     setUploadMode(null);
   };
 
@@ -194,6 +239,55 @@ export function AccountsPage({ onBack }) {
                   onClick={handleDeleteConfirm}
                 >
                   Ta bort permanent
+                </Button>
+              </div>
+            </div>
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
+  // Show reset confirmation dialog
+  if (resetConfirmation) {
+    return (
+      <div className="space-y-4">
+        <button 
+          onClick={handleCancel}
+          className="flex items-center text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4 mr-1" />
+          Tillbaka till kontolistan
+        </button>
+
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Återställ alla data</AlertTitle>
+          <AlertDescription>
+            <div className="space-y-4 mt-2">
+              <p>
+                Är du säker på att du vill återställa all data? Detta kommer att:
+              </p>
+              <ul className="list-disc pl-6 space-y-1">
+                <li>Ta bort alla konton och deras inställningar</li>
+                <li>Radera all statistikdata från översikts- och videodata</li>
+                <li>Återställa alla kolumnmappningar till standard</li>
+              </ul>
+              <p className="font-bold text-red-600">
+                Denna åtgärd kan inte ångras!
+              </p>
+              <div className="flex space-x-4 justify-end">
+                <Button 
+                  variant="outline" 
+                  onClick={handleCancel}
+                >
+                  Avbryt
+                </Button>
+                <Button 
+                  variant="destructive"
+                  onClick={handleResetConfirm}
+                >
+                  Återställ all data
                 </Button>
               </div>
             </div>
@@ -290,16 +384,28 @@ export function AccountsPage({ onBack }) {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {/* Quick account creation */}
-          {!isAddingAccount ? (
+          <div className="flex justify-between items-center mb-4">
+            {/* Återställning av data */}
             <Button 
-              onClick={() => setIsAddingAccount(true)} 
-              className="mb-4"
+              variant="outline" 
+              onClick={handleResetClick}
+              className="text-red-600 hover:text-red-700 border-red-200 hover:border-red-300 hover:bg-red-50"
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Återställ data
+            </Button>
+          
+            {/* Lägga till konto */}
+            <Button 
+              onClick={() => setIsAddingAccount(true)}
             >
               <Plus className="h-4 w-4 mr-2" />
               Lägg till nytt konto
             </Button>
-          ) : (
+          </div>
+        
+          {/* Quick account creation */}
+          {isAddingAccount && (
             <div className="space-y-2 mb-4">
               <Label htmlFor="account-name">Ange kontonamn</Label>
               <div className="flex gap-2">

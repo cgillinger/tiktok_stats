@@ -613,6 +613,16 @@ export function SummaryView({ data, selectedFields, account, accounts = [], onAc
                 och videovyn. Exempelvis kan en video som publicerades före den valda perioden fortfarande 
                 generera interaktioner som syns i översiktsvyn men inte i videovyn.
               </p>
+              <p className="mt-2">
+                <strong>Engagemangsnivå (%)</strong> beräknas i översiktsvyn som 
+                <code className="mx-1 px-1 py-0.5 bg-blue-100 rounded">
+                  (likes + comments + shares) / reach * 100
+                </code>
+                och i videovyn som 
+                <code className="mx-1 px-1 py-0.5 bg-blue-100 rounded">
+                  (likes + comments + shares) / views * 100
+                </code>
+              </p>
             </AlertDescription>
           </Alert>
         )}
