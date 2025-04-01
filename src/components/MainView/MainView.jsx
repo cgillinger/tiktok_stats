@@ -53,8 +53,8 @@ export function MainView() {
   const [selectedSummaryFields, setSelectedSummaryFields] = useState([]);
   const [selectedVideoFields, setSelectedVideoFields] = useState([]);
 
-  // Filtrera konto i vyerna
-  const [filteredAccountId, setFilteredAccountId] = useState(null);
+  // Filtrera konto i vyerna - sätt till 'all' som standard
+  const [filteredAccountId, setFilteredAccountId] = useState('all');
 
   // Hämta data för alla konton
   useEffect(() => {
@@ -119,9 +119,8 @@ export function MainView() {
   // Hantera kontofiltrering från vyerna
   const handleAccountFilter = (accountId) => {
     setFilteredAccountId(accountId);
-    if (accountId !== 'all') {
-      setSelectedAccountId(accountId);
-    }
+    // Uppdatera även det valda kontot i useAccountManager för att hålla UI konsekvent
+    setSelectedAccountId(accountId);
   };
 
   // Visa kontohantering
@@ -252,6 +251,26 @@ export function MainView() {
             </div>
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {/* Visa 'Alla konton' ruta först */}
+              <div 
+                className={`p-4 border rounded-lg cursor-pointer transition-colors ${
+                  selectedAccountId === 'all' 
+                    ? 'border-primary bg-primary/5' 
+                    : 'hover:bg-muted/50'
+                }`}
+                onClick={() => setSelectedAccountId('all')}
+              >
+                <h3 className="font-medium mb-1">Alla konton</h3>
+                <p className="text-xs text-muted-foreground mb-2">Visa data från alla konton</p>
+                
+                <div className="flex flex-wrap gap-2 mt-2">
+                  <span className={`px-2 py-0.5 rounded-full text-xs bg-blue-100 text-blue-700`}>
+                    Visar alla data
+                  </span>
+                </div>
+              </div>
+              
+              {/* Visa alla individuella konton */}
               {accounts.map(account => (
                 <div 
                   key={account.id}
@@ -372,6 +391,7 @@ export function MainView() {
                 account={getSelectedAccount()}
                 accounts={accounts}
                 onAccountFilter={handleAccountFilter}
+                initialSelectedAccountId={selectedAccountId}  // Skicka med valt konto-ID
               />
             </TabsContent>
             
@@ -382,6 +402,7 @@ export function MainView() {
                 account={getSelectedAccount()}
                 accounts={accounts}
                 onAccountFilter={handleAccountFilter}
+                initialSelectedAccountId={selectedAccountId}  // Skicka med valt konto-ID
               />
             </TabsContent>
           </Tabs>

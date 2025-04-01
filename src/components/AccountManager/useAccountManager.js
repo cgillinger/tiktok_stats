@@ -13,7 +13,8 @@ import { STORAGE_KEYS } from '@/utils/constants';
  */
 export function useAccountManager() {
   const [accounts, setAccounts] = useState([]);
-  const [selectedAccountId, setSelectedAccountId] = useState(null);
+  // Ändra standardvärdet till 'all' istället för null
+  const [selectedAccountId, setSelectedAccountId] = useState('all');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -30,12 +31,17 @@ export function useAccountManager() {
       // Hämta senast valt konto från localStorage
       const lastSelectedId = localStorage.getItem(STORAGE_KEYS.LAST_SELECTED_ACCOUNT);
       
-      // Om det finns ett senast valt konto och det finns i listan, välj det
-      if (lastSelectedId && fetchedAccounts.some(acc => acc.id === lastSelectedId)) {
+      // Om "all" är lagrat eller ingen tidigare inställning finns, använd "all"
+      if (lastSelectedId === 'all' || !lastSelectedId) {
+        setSelectedAccountId('all');
+      }
+      // Om ett specifikt konto var valt och det fortfarande finns, använd det
+      else if (fetchedAccounts.some(acc => acc.id === lastSelectedId)) {
         setSelectedAccountId(lastSelectedId);
-      } else if (fetchedAccounts.length > 0) {
-        // Annars välj det första kontot om det finns något
-        setSelectedAccountId(fetchedAccounts[0].id);
+      } 
+      // Annars använd 'all' som fallback
+      else {
+        setSelectedAccountId('all');
       }
     } catch (err) {
       console.error('Fel vid hämtning av konton:', err);
@@ -51,17 +57,15 @@ export function useAccountManager() {
 
   // Spara valt konto i localStorage
   useEffect(() => {
-    if (selectedAccountId) {
-      localStorage.setItem(STORAGE_KEYS.LAST_SELECTED_ACCOUNT, selectedAccountId);
-    }
+    localStorage.setItem(STORAGE_KEYS.LAST_SELECTED_ACCOUNT, selectedAccountId);
   }, [selectedAccountId]);
 
   /**
    * Hämtar det valda kontot från listan
-   * @returns {Object|null} Det valda kontot, eller null om inget är valt
+   * @returns {Object|null} Det valda kontot, eller null om inget är valt eller "alla" är valt
    */
   const getSelectedAccount = useCallback(() => {
-    if (!selectedAccountId) return null;
+    if (!selectedAccountId || selectedAccountId === 'all') return null;
     return accounts.find(acc => acc.id === selectedAccountId) || null;
   }, [selectedAccountId, accounts]);
 
@@ -89,9 +93,6 @@ export function useAccountManager() {
       
       // Uppdatera listan med konton
       setAccounts(prev => [...prev, newAccount]);
-      
-      // Välj det nya kontot
-      setSelectedAccountId(newAccount.id);
       
       return newAccount;
     } catch (err) {
@@ -165,14 +166,9 @@ export function useAccountManager() {
         // Uppdatera listan med konton
         setAccounts(prev => prev.filter(acc => acc.id !== accountId));
         
-        // Om det borttagna kontot var det valda, välj ett annat
+        // Om det borttagna kontot var det valda, sätt tillbaka till 'all'
         if (selectedAccountId === accountId) {
-          const remainingAccounts = accounts.filter(acc => acc.id !== accountId);
-          if (remainingAccounts.length > 0) {
-            setSelectedAccountId(remainingAccounts[0].id);
-          } else {
-            setSelectedAccountId(null);
-          }
+          setSelectedAccountId('all');
         }
       }
       
@@ -182,7 +178,7 @@ export function useAccountManager() {
       setError('Kunde inte ta bort konto: ' + (err.message || 'Okänt fel'));
       throw err;
     }
-  }, [selectedAccountId, accounts]);
+  }, [selectedAccountId]);
 
   /**
    * Uppdaterar ett kontos datastatus (har översiktsdata/videodata)

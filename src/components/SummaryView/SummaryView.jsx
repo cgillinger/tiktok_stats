@@ -33,15 +33,26 @@ import { Label } from '../ui/label';
  * @param {Object} props.account - Kontot som data tillhör
  * @param {Array} props.accounts - Lista över alla konton
  * @param {Function} props.onAccountFilter - Callback vid filtrering på konto
+ * @param {string} props.initialSelectedAccountId - Initialt valt konto-ID ('all' för alla)
  */
-export function SummaryView({ data, selectedFields, account, accounts = [], onAccountFilter }) {
+export function SummaryView({ 
+  data, 
+  selectedFields, 
+  account, 
+  accounts = [], 
+  onAccountFilter,
+  initialSelectedAccountId = 'all'
+}) {
   const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' });
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [isLoading, setIsLoading] = useState(false);
   const [dateRange, setDateRange] = useState({ startDate: null, endDate: null });
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedAccountId, setSelectedAccountId] = useState(account ? account.id : 'all');
+  
+  // Använd initialSelectedAccountId som standardvärde, defaulta till 'all'
+  const [selectedAccountId, setSelectedAccountId] = useState(initialSelectedAccountId || 'all');
+  
   const [viewByAccount, setViewByAccount] = useState(false);
   const [showInfoText, setShowInfoText] = useState(false);
   
@@ -74,12 +85,10 @@ export function SummaryView({ data, selectedFields, account, accounts = [], onAc
     setCurrentPage(1);
   }, [data, pageSize, sortConfig, selectedAccountId, viewByAccount]);
 
-  // Uppdatera valt konto när account prop ändras
+  // Uppdatera valt konto när initialSelectedAccountId ändras
   useEffect(() => {
-    if (account) {
-      setSelectedAccountId(account.id);
-    }
-  }, [account]);
+    setSelectedAccountId(initialSelectedAccountId || 'all');
+  }, [initialSelectedAccountId]);
 
   // Beräkna datumintervall när data laddas
   useEffect(() => {

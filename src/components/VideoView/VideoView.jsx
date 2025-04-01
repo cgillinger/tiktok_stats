@@ -30,15 +30,25 @@ import { formatDate, formatDateTime, formatNumber, truncateText } from '@/utils/
  * @param {Object} props.account - Kontot som data tillhör
  * @param {Array} props.accounts - Lista över alla konton
  * @param {Function} props.onAccountFilter - Callback vid filtrering på konto
+ * @param {string} props.initialSelectedAccountId - Initialt valt konto-ID ('all' för alla)
  */
-export function VideoView({ data, selectedFields, account, accounts = [], onAccountFilter }) {
+export function VideoView({ 
+  data, 
+  selectedFields, 
+  account, 
+  accounts = [], 
+  onAccountFilter,
+  initialSelectedAccountId = 'all'
+}) {
   const [sortConfig, setSortConfig] = useState({ key: 'publish_time', direction: 'desc' });
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [isLoading, setIsLoading] = useState(false);
   const [dateRange, setDateRange] = useState({ startDate: null, endDate: null });
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedAccountId, setSelectedAccountId] = useState(account ? account.id : 'all');
+  
+  // Använd initialSelectedAccountId som standardvärde, defaulta till 'all'
+  const [selectedAccountId, setSelectedAccountId] = useState(initialSelectedAccountId || 'all');
   
   const PAGE_SIZE_OPTIONS = [
     { value: '5', label: '5 per sida' },
@@ -63,12 +73,10 @@ export function VideoView({ data, selectedFields, account, accounts = [], onAcco
     setCurrentPage(1);
   }, [data, pageSize, sortConfig, selectedAccountId]);
 
-  // Uppdatera valt konto när account prop ändras
+  // Uppdatera valt konto när initialSelectedAccountId ändras
   useEffect(() => {
-    if (account) {
-      setSelectedAccountId(account.id);
-    }
-  }, [account]);
+    setSelectedAccountId(initialSelectedAccountId || 'all');
+  }, [initialSelectedAccountId]);
 
   // Beräkna datumintervall när data laddas
   useEffect(() => {
