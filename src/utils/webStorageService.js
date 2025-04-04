@@ -428,18 +428,47 @@ export const saveAccountData = async (accountId, csvType, data) => {
       throw new Error('accountId, csvType och data krävs');
     }
     
-    // Lägg till metadata och accountId på varje datarad
-    const dataWithAccountId = data.map(item => ({
-      ...item,
-      accountId: accountId
-    }));
+    console.log(`Sparar ${csvType}-data för konto ${accountId} (${data.length} rader)`);
+    
+    // Validera data
+    if (!Array.isArray(data)) {
+      throw new Error('Data måste vara en array');
+    }
+    
+    // Validera och försök rätta till datum
+    const processedData = data.map(item => {
+      const processed = { ...item, accountId };
+      
+      // Ensure date fields have proper format
+      if (csvType === CSV_TYPES.OVERVIEW && processed.date) {
+        try {
+          const date = new Date(processed.date);
+          if (!isNaN(date.getTime())) {
+            processed.date = date.toISOString();
+          }
+        } catch (e) {
+          console.warn('Failed to format date:', processed.date);
+        }
+      } else if (csvType === CSV_TYPES.VIDEO && processed.publish_time) {
+        try {
+          const date = new Date(processed.publish_time);
+          if (!isNaN(date.getTime())) {
+            processed.publish_time = date.toISOString();
+          }
+        } catch (e) {
+          console.warn('Failed to format publish_time:', processed.publish_time);
+        }
+      }
+
+      return processed;
+    });
     
     // Lägg till metadata
     const dataWithMeta = {
       accountId,
       dataType: csvType,
       timestamp: Date.now(),
-      data: dataWithAccountId
+      data: processedData
     };
     
     // Kontrollera datamängd för att avgöra om localStorage eller IndexedDB ska användas
@@ -459,6 +488,13 @@ export const saveAccountData = async (accountId, csvType, data) => {
       ? STORAGE_KEYS.STORE_OVERVIEW_DATA
       : STORAGE_KEYS.STORE_VIDEO_DATA;
     
+    // Delete any previous data for this account and type
+    const existingItems = await getByIndex(storeName, 'accountId', accountId);
+    for (const item of existingItems) {
+      await deleteById(storeName, item.id);
+    }
+    
+    // Save the new data
     await saveToIndexedDB(storeName, dataWithMeta);
     
     // Uppdatera kontots datastatus
@@ -468,6 +504,7 @@ export const saveAccountData = async (accountId, csvType, data) => {
     
     await updateAccountDataStatus(accountId, dataStatus);
     
+    console.log(`Data sparad för ${csvType} (${processedData.length} rader)`);
     return true;
   } catch (error) {
     console.error(`Fel vid sparande av ${csvType}-data för konto ${accountId}:`, error);
@@ -487,22 +524,9 @@ export const getAccountData = async (accountId, csvType) => {
       throw new Error('accountId och csvType krävs');
     }
     
-    // Försök hämta från localStorage först
-    const localStorageKey = csvType === CSV_TYPES.OVERVIEW
-      ? `${STORAGE_KEYS.OVERVIEW_DATA_PREFIX}${accountId}`
-      : `${STORAGE_KEYS.VIDEO_DATA_PREFIX}${accountId}`;
+    console.log(`Hämtar ${csvType}-data för konto ${accountId}`);
     
-    const localData = getFromLocalStorage(localStorageKey, null);
-    
-    if (localData && localData.data && Array.isArray(localData.data)) {
-      // Ensure accountId is on each data item
-      return localData.data.map(item => ({
-        ...item,
-        accountId: accountId
-      }));
-    }
-    
-    // Om ingen data hittades i localStorage, hämta från IndexedDB
+    // Först, försök hämta från IndexedDB
     const storeName = csvType === CSV_TYPES.OVERVIEW
       ? STORAGE_KEYS.STORE_OVERVIEW_DATA
       : STORAGE_KEYS.STORE_VIDEO_DATA;
@@ -513,13 +537,35 @@ export const getAccountData = async (accountId, csvType) => {
       // Sortera efter timestamp (senaste först) och returnera datan
       const sortedData = indexedDBData.sort((a, b) => b.timestamp - a.timestamp);
       
-      // Ensure accountId is on each data item
-      return sortedData[0].data.map(item => ({
-        ...item,
-        accountId: accountId
-      })) || [];
+      if (sortedData[0].data && Array.isArray(sortedData[0].data)) {
+        console.log(`Hittade ${sortedData[0].data.length} rader i IndexedDB`);
+        
+        // Ensure accountId is on each data item
+        return sortedData[0].data.map(item => ({
+          ...item,
+          accountId: accountId
+        }));
+      }
     }
     
+    // Fallback: Försök hämta från localStorage
+    const localStorageKey = csvType === CSV_TYPES.OVERVIEW
+      ? `${STORAGE_KEYS.OVERVIEW_DATA_PREFIX}${accountId}`
+      : `${STORAGE_KEYS.VIDEO_DATA_PREFIX}${accountId}`;
+    
+    const localData = getFromLocalStorage(localStorageKey, null);
+    
+    if (localData && localData.data && Array.isArray(localData.data)) {
+      console.log(`Hittade ${localData.data.length} rader i localStorage`);
+      
+      // Ensure accountId is on each data item
+      return localData.data.map(item => ({
+        ...item,
+        accountId: accountId
+      }));
+    }
+    
+    console.log(`Ingen data hittades för ${csvType}`);
     return [];
   } catch (error) {
     console.error(`Fel vid hämtning av ${csvType}-data för konto ${accountId}:`, error);

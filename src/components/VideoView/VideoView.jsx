@@ -21,6 +21,7 @@ import { Input } from '../ui/input';
 import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
 import { VIDEO_VIEW_AVAILABLE_FIELDS } from '@/utils/constants';
 import { formatDate, formatDateTime, formatNumber, truncateText } from '@/utils/utils';
+import { CopyableValue } from '../ui/copyable-value';
 
 /**
  * Komponent för visning av videodata
@@ -558,8 +559,18 @@ export function VideoView({
                       <TableCell key={field} className="text-right font-semibold text-primary">
                         {processedData.totals[field] !== undefined 
                           ? (field === 'engagement_rate' 
-                              ? `${processedData.totals[field].toFixed(2)}%` 
-                              : formatNumber(processedData.totals[field]))
+                              ? <CopyableValue 
+                                  value={processedData.totals[field].toFixed(2)} 
+                                  formattedValue={`${processedData.totals[field].toFixed(2)}%`}
+                                  align="right"
+                                  className="font-semibold text-primary"
+                                />
+                              : <CopyableValue 
+                                  value={processedData.totals[field]} 
+                                  formattedValue={formatNumber(processedData.totals[field])}
+                                  align="right"
+                                  className="font-semibold text-primary"
+                                />)
                           : ''}
                       </TableCell>
                     ))}
@@ -592,8 +603,17 @@ export function VideoView({
                           {item[field] === null || item[field] === undefined 
                             ? '-' 
                             : field === 'engagement_rate'
-                              ? `${item[field].toFixed(2)}%`
-                              : formatNumber(item[field])}
+                              ? <CopyableValue 
+                                  value={item[field].toFixed(2)} 
+                                  formattedValue={`${item[field].toFixed(2)}%`}
+                                  align="right"
+                                />
+                              : <CopyableValue 
+                                  value={item[field]} 
+                                  formattedValue={formatNumber(item[field])}
+                                  align="right"
+                                />
+                          }
                         </TableCell>
                       ))}
                     

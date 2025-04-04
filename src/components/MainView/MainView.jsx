@@ -21,6 +21,7 @@ import { ColumnMappingEditor } from '../ColumnMappingEditor/ColumnMappingEditor'
 import { StorageStatus } from '../StorageStatus/StorageStatus';
 import { useAccountManager } from '../AccountManager/useAccountManager';
 import { getAccountData } from '@/utils/webStorageService';
+import { MultiFileUploader } from '../MultiFileUploader/MultiFileUploader';
 import { 
   SUMMARY_VIEW_AVAILABLE_FIELDS, 
   VIDEO_VIEW_AVAILABLE_FIELDS,
@@ -37,10 +38,12 @@ export function MainView() {
     selectedAccountId, 
     getSelectedAccount, 
     setSelectedAccountId,
-    loadAccounts
+    loadAccounts,
+    createAccount
   } = useAccountManager();
   
   const [activeTab, setActiveTab] = useState('summary');
+  // FIXFIX: Ändra standardvyn för activeView till 'main' istället för formulär
   const [activeView, setActiveView] = useState('main');
   
   const [summaryData, setSummaryData] = useState([]);
@@ -49,12 +52,24 @@ export function MainView() {
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
 
-  // Fältval för respektive vy - initiera med tomma arrayer
-  const [selectedSummaryFields, setSelectedSummaryFields] = useState([]);
-  const [selectedVideoFields, setSelectedVideoFields] = useState([]);
+  // Fältval för respektive vy - initiera med några förvalda fält för bättre UX
+  const [selectedSummaryFields, setSelectedSummaryFields] = useState([
+    'video_views', 'reach', 'likes', 'comments', 'shares'
+  ]);
+  const [selectedVideoFields, setSelectedVideoFields] = useState([
+    'views', 'likes', 'comments', 'shares'
+  ]);
 
   // Filtrera konto i vyerna - sätt till 'all' som standard
   const [filteredAccountId, setFilteredAccountId] = useState('all');
+
+  // Visa onboarding-vy om inga konton finns
+  const [showOnboarding, setShowOnboarding] = useState(accounts.length === 0);
+  
+  // Uppdatera onboarding-status när accounts ändras
+  useEffect(() => {
+    setShowOnboarding(accounts.length === 0);
+  }, [accounts]);
 
   // Hämta data för alla konton
   useEffect(() => {
@@ -110,6 +125,12 @@ export function MainView() {
     }, 5000);
   };
 
+  // FIXFIX: Korrigerat handlering av navigationsflöde för AccountsPage
+  // När användaren klickar på "Hantera konton" i huvudvyn ska de hamna på kontolistan direkt
+  const handleManageAccounts = () => {
+    setActiveView('accounts');
+  };
+
   // När vi återvänder från AccountsPage, uppdatera konton och data
   const handleReturnFromAccounts = async () => {
     setActiveView('main');
@@ -122,6 +143,55 @@ export function MainView() {
     // Uppdatera även det valda kontot i useAccountManager för att hålla UI konsekvent
     setSelectedAccountId(accountId);
   };
+
+  // Hantera framgång med att skapa första kontot och ladda upp data
+  const handleInitialSetupSuccess = (result) => {
+    if (result && result.account) {
+      // Uppdatera kontolistan
+      loadAccounts();
+      
+      // Visa framgångsmeddelande
+      showSuccessMessage(`Kontot "${result.account.name}" har konfigurerats framgångsrikt`);
+      
+      // Stäng onboarding-vyn
+      setShowOnboarding(false);
+      
+      // Gå till huvudvyn
+      setActiveView('main');
+    }
+  };
+
+  // Visa onboarding-vy om inga konton finns
+  if (showOnboarding) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center mb-8">
+          <h1 className="text-2xl font-bold mb-2">Välkommen till TikTok Statistik</h1>
+          <p className="text-muted-foreground max-w-2xl mx-auto">
+            Kom igång genom att skapa ditt första konto och ladda upp dina TikTok-data. 
+            Både översiktsdata (daglig statistik) och videodata (specifik statistik för enskilda videor) stöds.
+          </p>
+        </div>
+        
+        <Card className="max-w-3xl mx-auto">
+          <CardHeader>
+            <CardTitle>Kom igång med TikTok Statistik</CardTitle>
+            <CardDescription>
+              Skapa ditt första konto och ladda upp TikTok-data för att börja analysera din statistik
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <MultiFileUploader 
+              account={null}
+              onCreateAccount={createAccount}
+              onSuccess={handleInitialSetupSuccess}
+              onCancel={() => setShowOnboarding(false)}
+            />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   // Visa kontohantering
   if (activeView === 'accounts') {
@@ -177,7 +247,7 @@ export function MainView() {
         <div className="flex gap-2">
           <Button 
             variant="outline" 
-            onClick={() => setActiveView('accounts')}
+            onClick={handleManageAccounts} // FIXFIX: Anropa den nya funktionen direkt
             title="Hantera konton och filer"
           >
             <Users className="h-4 w-4 mr-2" />
@@ -227,11 +297,11 @@ export function MainView() {
           <div className="flex justify-between items-center">
             <CardTitle>Konton och data</CardTitle>
             <Button 
-              onClick={() => setActiveView('accounts')}
+              onClick={handleManageAccounts} // FIXFIX: Anropa den nya funktionen här också
               size="sm"
             >
               <PlusCircle className="h-4 w-4 mr-2" />
-              Lägg till fler konton
+              Hantera konton
             </Button>
           </div>
           <CardDescription>
@@ -243,7 +313,7 @@ export function MainView() {
             <div className="text-center p-6 border border-dashed rounded-lg">
               <p className="text-muted-foreground mb-4">Du har inga konton ännu</p>
               <Button 
-                onClick={() => setActiveView('accounts')}
+                onClick={handleManageAccounts} // FIXFIX: Anropa den nya funktionen här också
               >
                 <PlusCircle className="h-4 w-4 mr-2" />
                 Lägg till ditt första konto
@@ -415,7 +485,7 @@ export function MainView() {
           <CardContent className="p-6 text-center">
             <p className="text-muted-foreground mb-4">Ingen data finns tillgänglig ännu</p>
             <Button 
-              onClick={() => setActiveView('accounts')}
+              onClick={handleManageAccounts} // FIXFIX: Anropa den nya funktionen här också
             >
               <PlusCircle className="h-4 w-4 mr-2" />
               Lägg till data

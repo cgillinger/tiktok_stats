@@ -6,6 +6,38 @@
 import { CSV_TYPES, OVERVIEW_ALL_FIELDS, VIDEO_ALL_FIELDS } from './constants';
 
 /**
+ * Konverterar ett stringvärde till ett numeriskt värde om möjligt
+ * @param {string|number} value - Värdet att konvertera
+ * @returns {number} - Konverterat numeriskt värde
+ */
+export const parseNumericValue = (value) => {
+  if (value === null || value === undefined || value === '') return 0;
+  
+  // Om värdet är en sträng, försök konvertera
+  if (typeof value === 'string') {
+    // Ta bort mellanslag, tusentalsavgränsare och byt ut eventuella kommatecken mot punkter
+    const cleanValue = value
+      .replace(/\s+/g, '')
+      .replace(/\.(?=\d{3})/g, '')  // Ta bort punkter som är tusentalsavgränsare (före tre siffror)
+      .replace(/,/g, '.');           // Ersätt komma med punkt för decimaltal
+    
+    // Försök konvertera till ett nummer
+    const num = parseFloat(cleanValue);
+    if (!isNaN(num)) {
+      return num;
+    }
+  }
+  
+  // Om värdet redan är ett nummer, returnera det
+  if (typeof value === 'number' && !isNaN(value)) {
+    return value;
+  }
+  
+  // Fallback till 0 för värden som inte kan konverteras
+  return 0;
+};
+
+/**
  * Beräknar engagement rate baserat på vy-typ
  * @param {Object} data - Datarad med statistik
  * @param {string} csvType - CSV-typ (overview eller video)
@@ -17,12 +49,13 @@ export const calculateEngagementRate = (data, csvType) => {
   
   if (csvType === CSV_TYPES.OVERVIEW) {
     // För översiktsdata: (likes + comments + shares) / reach * 100
-    interactions = (data.likes || 0) + (data.comments || 0) + (data.shares || 0);
-    divisor = data.reach || 0;
+    interactions = parseNumericValue(data.likes) + parseNumericValue(data.comments) + parseNumericValue(data.shares);
+    divisor = parseNumericValue(data.reach);
   } else {
     // För videodata: (likes + comments + shares + favorites) / views * 100
-    interactions = (data.likes || 0) + (data.comments || 0) + (data.shares || 0) + (data.favorites || 0);
-    divisor = data.views || 0;
+    interactions = parseNumericValue(data.likes) + parseNumericValue(data.comments) + 
+                  parseNumericValue(data.shares) + parseNumericValue(data.favorites);
+    divisor = parseNumericValue(data.views);
   }
   
   if (divisor === 0) return 0;
@@ -38,10 +71,11 @@ export const calculateEngagementRate = (data, csvType) => {
 export const calculateInteractions = (data, csvType) => {
   if (csvType === CSV_TYPES.OVERVIEW) {
     // För översiktsdata: likes + comments + shares
-    return (data.likes || 0) + (data.comments || 0) + (data.shares || 0);
+    return parseNumericValue(data.likes) + parseNumericValue(data.comments) + parseNumericValue(data.shares);
   } else {
     // För videodata: likes + comments + shares + favorites
-    return (data.likes || 0) + (data.comments || 0) + (data.shares || 0) + (data.favorites || 0);
+    return parseNumericValue(data.likes) + parseNumericValue(data.comments) + 
+           parseNumericValue(data.shares) + parseNumericValue(data.favorites);
   }
 };
 
@@ -66,13 +100,22 @@ export const calculateSummaryStats = (data, csvType, startDate = null, endDate =
   let filteredData = data;
   if (startDate || endDate) {
     filteredData = data.filter(row => {
-      const rowDate = csvType === CSV_TYPES.OVERVIEW 
-        ? new Date(row.date) 
-        : new Date(row.publish_time);
+      const dateField = csvType === CSV_TYPES.OVERVIEW ? 'date' : 'publish_time';
+      const rowDateStr = row[dateField];
       
-      if (startDate && rowDate < startDate) return false;
-      if (endDate && rowDate > endDate) return false;
-      return true;
+      if (!rowDateStr) return false;
+      
+      try {
+        const rowDate = new Date(rowDateStr);
+        if (isNaN(rowDate.getTime())) return false;
+        
+        if (startDate && rowDate < startDate) return false;
+        if (endDate && rowDate > endDate) return false;
+        return true;
+      } catch (e) {
+        console.warn('Kunde inte parsa datum:', rowDateStr);
+        return false;
+      }
     });
   }
   
@@ -81,13 +124,21 @@ export const calculateSummaryStats = (data, csvType, startDate = null, endDate =
   let dates = filteredData
     .map(row => row[dateField])
     .filter(date => date)
-    .map(date => new Date(date));
+    .map(date => {
+      try {
+        const parsedDate = new Date(date);
+        return isNaN(parsedDate.getTime()) ? null : parsedDate;
+      } catch (e) {
+        return null;
+      }
+    })
+    .filter(date => date !== null);
   
   let dateRange = { startDate: null, endDate: null };
   if (dates.length > 0) {
     dateRange = {
-      startDate: new Date(Math.min(...dates)),
-      endDate: new Date(Math.max(...dates))
+      startDate: new Date(Math.min(...dates.map(d => d.getTime()))),
+      endDate: new Date(Math.max(...dates.map(d => d.getTime())))
     };
   }
   
@@ -105,9 +156,9 @@ export const calculateSummaryStats = (data, csvType, startDate = null, endDate =
       return;
     }
     
-    // Beräkna summa
+    // Beräkna summa med säker konvertering av värden
     totals[field] = filteredData.reduce((sum, row) => {
-      return sum + (typeof row[field] === 'number' ? row[field] : 0);
+      return sum + parseNumericValue(row[field]);
     }, 0);
   });
   
@@ -148,7 +199,12 @@ export const filterData = (data, searchTerm, csvType) => {
     // Sök i datum
     const dateField = csvType === CSV_TYPES.OVERVIEW ? 'date' : 'publish_time';
     if (row[dateField]) {
-      const dateStr = new Date(row[dateField]).toLocaleDateString();
+      let dateStr;
+      try {
+        dateStr = new Date(row[dateField]).toLocaleDateString();
+      } catch (e) {
+        dateStr = String(row[dateField]);
+      }
       if (dateStr.toLowerCase().includes(search)) return true;
     }
     
@@ -187,18 +243,33 @@ export const sortData = (data, field, direction = 'asc') => {
 
     // Specialhantering för datum
     if (field === 'date' || field === 'publish_time') {
-      const aDate = new Date(aValue);
-      const bDate = new Date(bValue);
-      return direction === 'asc' 
-        ? aDate - bDate 
-        : bDate - aDate;
+      // Handle 'Totalt' rows in special cases
+      if (a.date === 'Totalt') return direction === 'asc' ? 1 : -1;
+      if (b.date === 'Totalt') return direction === 'asc' ? -1 : 1;
+
+      try {
+        const aDate = new Date(aValue);
+        const bDate = new Date(bValue);
+        
+        // Only compare as dates if both are valid
+        if (!isNaN(aDate.getTime()) && !isNaN(bDate.getTime())) {
+          return direction === 'asc' 
+            ? aDate - bDate 
+            : bDate - aDate;
+        }
+      } catch (e) {
+        // Fall back to string comparison if date parsing fails
+      }
     }
 
     // Hantering för numeriska värden
-    if (typeof aValue === 'number' && typeof bValue === 'number') {
+    const aNum = parseNumericValue(aValue);
+    const bNum = parseNumericValue(bValue);
+    
+    if (!isNaN(aNum) && !isNaN(bNum)) {
       return direction === 'asc' 
-        ? aValue - bValue 
-        : bValue - aValue;
+        ? aNum - bNum 
+        : bNum - aNum;
     }
 
     // Fallback till strängsortering

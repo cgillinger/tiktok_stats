@@ -94,6 +94,9 @@ export function useAccountManager() {
       // Uppdatera listan med konton
       setAccounts(prev => [...prev, newAccount]);
       
+      // Automatiskt välj det nya kontot
+      setSelectedAccountId(newAccount.id);
+      
       return newAccount;
     } catch (err) {
       console.error('Fel vid skapande av konto:', err);

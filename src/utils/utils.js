@@ -76,6 +76,47 @@ export function formatNumber(number) {
 }
 
 /**
+ * Kopierar ett rent värde till urklipp
+ * @param {number|string} value - Värdet att kopiera
+ * @returns {Promise<boolean>} - true om kopiering lyckades
+ */
+export async function copyToClipboard(value) {
+  try {
+    // Säkerställ att vi har ett rent värde
+    const cleanValue = String(value).trim();
+    
+    // Använd Clipboard API om tillgänglig
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(cleanValue);
+      return true;
+    }
+    
+    // Fallback för äldre webbläsare
+    const textArea = document.createElement('textarea');
+    textArea.value = cleanValue;
+    
+    // Placera elementet utanför skärmen
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-999999px';
+    textArea.style.top = '-999999px';
+    document.body.appendChild(textArea);
+    
+    // Välj texten och kopiera
+    textArea.focus();
+    textArea.select();
+    const success = document.execCommand('copy');
+    
+    // Städa upp
+    document.body.removeChild(textArea);
+    
+    return success;
+  } catch (error) {
+    console.error('Fel vid kopiering till urklipp:', error);
+    return false;
+  }
+}
+
+/**
  * Validerar en CSV-fil
  * @param {File} file - Filen att validera
  * @returns {boolean} - true om filen är giltig

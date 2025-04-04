@@ -1,15 +1,16 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '../ui/card';
 import { Button } from '../ui/button';
 import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
-import { UploadCloud, FileWarning, Loader2, CheckCircle2, AlertCircle, FileType2, ArrowLeft, AlertTriangle } from 'lucide-react';
+import { UploadCloud, FileWarning, Loader2, CheckCircle2, AlertCircle, FileType2, ArrowLeft, AlertTriangle, Calendar } from 'lucide-react';
 import { handleFileUpload } from '@/utils/webStorageService';
 import { processTikTokData, getDefaultColumnMappings, detectCSVType } from '@/utils/webDataProcessor';
 import { useFileDetection } from './useFileDetection';
 import { CSV_TYPES, CSV_TYPE_DISPLAY_NAMES } from '@/utils/constants';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { getColumnMappings, saveAccountData } from '@/utils/webStorageService';
-import { cn } from '@/utils/utils';
+import { cn, formatDate } from '@/utils/utils';
+import Papa from 'papaparse';
 
 /**
  * Komponent för uppladdning av TikTok-CSV-filer
@@ -25,6 +26,7 @@ export function FileUploader({ account, onSuccess, onCancel, forcedFileType = nu
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [selectedFileType, setSelectedFileType] = useState(forcedFileType);
   const [wrongFileTypeWarning, setWrongFileTypeWarning] = useState(null);
+  const [dateRange, setDateRange] = useState(null);
   const fileInputRef = useRef(null);
   
   const { 
@@ -38,6 +40,13 @@ export function FileUploader({ account, onSuccess, onCancel, forcedFileType = nu
     getFileTypeDisplayName
   } = useFileDetection();
 
+  // När en fil väljs, försök att identifiera datumintervallet
+  useEffect(() => {
+    if (file && fileContent && !isDetecting) {
+      analyzeDateRange(fileContent, fileType || forcedFileType);
+    }
+  }, [file, fileContent, isDetecting, fileType, forcedFileType]);
+
   // Hantera när en fil väljs
   const handleFileChange = (event) => {
     const selectedFile = event.target.files[0];
@@ -45,7 +54,69 @@ export function FileUploader({ account, onSuccess, onCancel, forcedFileType = nu
       setFile(selectedFile);
       setUploadError(null);
       setWrongFileTypeWarning(null);
+      setDateRange(null);
     }
+  };
+
+  // Analysera datumintervall för filen
+  const analyzeDateRange = (content, csvType) => {
+    if (!content || !csvType) return;
+    
+    // Använd Papa Parse för att analysera CSV-innehållet
+    Papa.parse(content, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        try {
+          // Hitta datumfältet baserat på CSV-typ
+          const dateField = csvType === CSV_TYPES.OVERVIEW ? 'date' : 'publish_time';
+          
+          // Hämta kolumnmappningar för att hitta rätt kolumnnamn
+          getColumnMappings(csvType).then(mappings => {
+            // Hitta det externa kolumnnamnet för datumfältet
+            let externalDateField = null;
+            for (const [external, internal] of Object.entries(mappings)) {
+              if (internal === dateField) {
+                externalDateField = external;
+                break;
+              }
+            }
+            
+            if (!externalDateField) {
+              // Fallback till standardnamn om mappningen inte hittas
+              externalDateField = csvType === CSV_TYPES.OVERVIEW ? 'Datum' : 'Publiceringstid';
+            }
+            
+            // Samla in alla datum från filen
+            const dates = [];
+            results.data.forEach(row => {
+              const dateValue = row[externalDateField];
+              if (dateValue) {
+                try {
+                  const date = new Date(dateValue);
+                  if (!isNaN(date.getTime())) {
+                    dates.push(date);
+                  }
+                } catch (e) {
+                  console.warn('Kunde inte tolka datum:', dateValue);
+                }
+              }
+            });
+            
+            // Om några datum hittades, beräkna intervallet
+            if (dates.length > 0) {
+              const sortedDates = [...dates].sort((a, b) => a - b);
+              setDateRange({
+                startDate: sortedDates[0],
+                endDate: sortedDates[sortedDates.length - 1]
+              });
+            }
+          });
+        } catch (err) {
+          console.error('Fel vid analys av datumintervall:', err);
+        }
+      }
+    });
   };
 
   // Hantera drag-och-släpp
@@ -63,6 +134,7 @@ export function FileUploader({ account, onSuccess, onCancel, forcedFileType = nu
       setFile(droppedFile);
       setUploadError(null);
       setWrongFileTypeWarning(null);
+      setDateRange(null);
     }
   };
 
@@ -246,6 +318,13 @@ export function FileUploader({ account, onSuccess, onCancel, forcedFileType = nu
                 <div className="flex items-center justify-center space-x-2 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   <span>Analyserar fil...</span>
+                </div>
+              )}
+              
+              {file && dateRange && (
+                <div className="flex items-center justify-center space-x-2 text-sm text-muted-foreground mt-2">
+                  <Calendar className="h-4 w-4" />
+                  <span>Period: {formatDate(dateRange.startDate)} - {formatDate(dateRange.endDate)}</span>
                 </div>
               )}
             </div>
