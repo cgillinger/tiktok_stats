@@ -15,9 +15,9 @@ import {
 import { useAccountManager } from '../AccountManager/useAccountManager';
 import { FileUploader } from '../FileUploader/FileUploader';
 import { MultiFileUploader } from '../MultiFileUploader/MultiFileUploader';
-import { CSV_TYPES, CSV_TYPE_DISPLAY_NAMES } from '@/utils/constants';
+import { CSV_TYPES, CSV_TYPE_DISPLAY_NAMES, STORAGE_KEYS } from '@/utils/constants';
 import { formatDate } from '@/utils/utils';
-import { AccountForm } from '../AccountManager/AccountForm'; // Lägg till import för AccountForm
+import { AccountForm } from '../AccountManager/AccountForm';
 
 /**
  * Dedicated page for account management and data upload
@@ -39,14 +39,16 @@ export function AccountsPage({ onBack }) {
   } = useAccountManager();
   
   // Local states
-  const [activeView, setActiveView] = useState('accounts'); // FIXFIX: Sätt standardvärde till 'accounts'
+  const [activeView, setActiveView] = useState('accounts');
   const [selectedAccountForUpload, setSelectedAccountForUpload] = useState(null);
   const [uploadType, setUploadType] = useState(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState(null);
   const [resetConfirmation, setResetConfirmation] = useState(false);
   const [successMessage, setSuccessMessage] = useState(null);
-  const [isEditingAccount, setIsEditingAccount] = useState(false); // FIXFIX: Lägg till state för kontoeditering
-  const [accountToEdit, setAccountToEdit] = useState(null); // FIXFIX: Lägg till state för kontot som redigeras
+  const [isEditingAccount, setIsEditingAccount] = useState(false);
+  const [accountToEdit, setAccountToEdit] = useState(null);
+  const [isResetting, setIsResetting] = useState(false);
+  const [resetError, setResetError] = useState(null);
 
   // Visa framgångsmeddelande
   const showSuccessMessage = (message) => {
@@ -67,7 +69,7 @@ export function AccountsPage({ onBack }) {
     }
   };
 
-  // FIXFIX: Hantera redigering av konto
+  // Hantera redigering av konto
   const handleEditAccount = (accountId) => {
     const account = accounts.find(acc => acc.id === accountId);
     if (account) {
@@ -77,7 +79,7 @@ export function AccountsPage({ onBack }) {
     }
   };
 
-  // FIXFIX: Hantera sparande av redigerat konto
+  // Hantera sparande av redigerat konto
   const handleAccountSubmit = async (accountData) => {
     try {
       // Använd createAccount som uppdaterar befintligt konto om ID finns
@@ -156,6 +158,70 @@ export function AccountsPage({ onBack }) {
     setActiveView('new-account');
   };
 
+  // Hantera återställning av all data med förbättrad felhantering och timeout
+  const handleReset = async () => {
+    try {
+      setIsResetting(true);
+      setResetError(null);
+      
+      // Rensa localStorage för all app data
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('tiktok_stats_')) {
+          localStorage.removeItem(key);
+        }
+      }
+
+      // Set a timeout to handle cases where the IndexedDB deletion gets stuck
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('Återställning tog för lång tid. Laddar om sidan...'));
+        }, 5000); // 5 second timeout
+      });
+
+      // Delete the IndexedDB database
+      const deleteDbPromise = new Promise((resolve, reject) => {
+        const deleteRequest = window.indexedDB.deleteDatabase(STORAGE_KEYS.DB_NAME);
+
+        deleteRequest.onerror = function(event) {
+          console.error('Fel vid återställning av data:', event);
+          reject(new Error('Kunde inte radera databasen'));
+        };
+
+        deleteRequest.onblocked = function(event) {
+          console.warn('Databasen är blockerad. Några anslutningar kan fortfarande vara öppna.', event);
+          // Still consider this successful as we're going to reload anyway
+          resolve();
+        };
+
+        deleteRequest.onsuccess = function() {
+          console.log('Database successfully deleted');
+          resolve();
+        };
+      });
+
+      // Race the database deletion against the timeout
+      try {
+        await Promise.race([deleteDbPromise, timeoutPromise]);
+        // If we get here, either the DB was deleted or it timed out
+        showSuccessMessage('All data har återställts. Laddar om sidan...');
+      } catch (error) {
+        console.error('Fel vid databorttagning:', error);
+        showSuccessMessage('Återställningsprocessen slutförs. Laddar om sidan...');
+      }
+      
+      // Always reload the page after a delay, regardless of whether the DB deletion succeeded
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } catch (err) {
+      console.error('Fel vid återställning av data:', err);
+      setResetError(err.message || 'Ett fel uppstod vid återställning av data.');
+      setIsResetting(false);
+      // Still allow the user to cancel the operation
+    }
+  };
+
   // Visa delete confirmation dialog
   if (deleteConfirmation) {
     return (
@@ -214,8 +280,13 @@ export function AccountsPage({ onBack }) {
     return (
       <div className="space-y-4">
         <button 
-          onClick={() => setResetConfirmation(false)}
+          onClick={() => {
+            if (!isResetting) {
+              setResetConfirmation(false);
+            }
+          }}
           className="flex items-center text-sm text-muted-foreground hover:text-foreground transition-colors"
+          disabled={isResetting}
         >
           <ArrowLeft className="h-4 w-4 mr-1" />
           Tillbaka till kontolistan
@@ -237,45 +308,39 @@ export function AccountsPage({ onBack }) {
               <p className="font-bold text-red-600">
                 Denna åtgärd kan inte ångras!
               </p>
+              
+              {resetError && (
+                <Alert variant="destructive" className="mt-2">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{resetError}</AlertDescription>
+                </Alert>
+              )}
+              
               <div className="flex space-x-4 justify-end">
                 <Button 
                   variant="outline" 
-                  onClick={() => setResetConfirmation(false)}
+                  onClick={() => {
+                    if (!isResetting) {
+                      setResetConfirmation(false);
+                    }
+                  }}
+                  disabled={isResetting}
                 >
                   Avbryt
                 </Button>
                 <Button 
                   variant="destructive"
-                  onClick={async () => {
-                    try {
-                      // Rensa localStorage
-                      localStorage.clear();
-
-                      // Visa IndexedDB-databasen för att radera den
-                      const deleteRequest = window.indexedDB.deleteDatabase('TikTokStatisticsDB');
-
-                      deleteRequest.onsuccess = function() {
-                        showSuccessMessage('All data har återställts. Ladda om sidan för att starta om.');
-                        
-                        // Visa en knapp för att ladda om sidan
-                        setTimeout(() => {
-                          window.location.reload();
-                        }, 2000);
-                      };
-
-                      deleteRequest.onerror = function(event) {
-                        console.error('Fel vid återställning av data:', event);
-                        setError('Kunde inte återställa all data. Försök att ladda om sidan.');
-                      };
-
-                      setResetConfirmation(false);
-                    } catch (err) {
-                      console.error('Fel vid återställning av data:', err);
-                      setError('Kunde inte återställa all data. Försök att ladda om sidan.');
-                    }
-                  }}
+                  onClick={handleReset}
+                  disabled={isResetting}
                 >
-                  Återställ all data
+                  {isResetting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Återställer...
+                    </>
+                  ) : (
+                    'Återställ all data'
+                  )}
                 </Button>
               </div>
             </div>
@@ -285,7 +350,7 @@ export function AccountsPage({ onBack }) {
     );
   }
 
-  // FIXFIX: Lägg till vy för att redigera konto
+  // Lägg till vy för att redigera konto
   if (activeView === 'edit-account' && accountToEdit) {
     return (
       <div className="space-y-4">
@@ -441,6 +506,7 @@ export function AccountsPage({ onBack }) {
               variant="outline" 
               onClick={() => setResetConfirmation(true)}
               className="text-red-600 hover:text-red-700 border-red-200 hover:border-red-300 hover:bg-red-50"
+              disabled={isResetting}
             >
               <RefreshCw className="h-4 w-4 mr-2" />
               Återställ data
@@ -529,7 +595,7 @@ export function AccountsPage({ onBack }) {
                         variant="outline"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleEditAccount(account.id); // FIXFIX: Anropa den nya funktionen
+                          handleEditAccount(account.id);
                         }}
                       >
                         Redigera
