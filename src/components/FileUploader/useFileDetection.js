@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import Papa from 'papaparse';
-import { detectCSVType } from '@/utils/webDataProcessor';
+import { detectCSVType, checkWrongPlatform } from '@/utils/webDataProcessor';
 import { CSV_TYPES, CSV_TYPE_DISPLAY_NAMES } from '@/utils/constants';
 import { isValidCSVFile } from '@/utils/utils';
 
@@ -14,6 +14,7 @@ export function useFileDetection() {
   const [fileContent, setFileContent] = useState(null);
   const [isDetecting, setIsDetecting] = useState(false);
   const [error, setError] = useState(null);
+  const [wrongPlatform, setWrongPlatform] = useState(null);
 
   // Detektera filtyp när en fil väljs
   useEffect(() => {
@@ -21,6 +22,7 @@ export function useFileDetection() {
       setFileType(null);
       setFileContent(null);
       setError(null);
+      setWrongPlatform(null);
       return;
     }
 
@@ -28,6 +30,7 @@ export function useFileDetection() {
       try {
         setIsDetecting(true);
         setError(null);
+        setWrongPlatform(null);
 
         // Validera att det är en CSV-fil
         if (!isValidCSVFile(file)) {
@@ -55,6 +58,14 @@ export function useFileDetection() {
                 // Detektera filtyp baserat på kolumnrubriker
                 const detectedType = detectCSVType(results.meta.fields);
                 setFileType(detectedType);
+                
+                // Kontrollera om det är en annan plattform än TikTok
+                const wrongPlatformInfo = checkWrongPlatform(detectedType);
+                if (wrongPlatformInfo) {
+                  setWrongPlatform(wrongPlatformInfo);
+                  setError(wrongPlatformInfo.message);
+                }
+                
                 setIsDetecting(false);
               } catch (err) {
                 console.error('Fel vid detektering av CSV-typ:', err);
@@ -92,6 +103,7 @@ export function useFileDetection() {
     setFileType(null);
     setFileContent(null);
     setError(null);
+    setWrongPlatform(null);
   };
 
   // Få visningsnamn för detekterad filtyp
@@ -105,6 +117,12 @@ export function useFileDetection() {
 
   // Kontrollera om filen är en videofil
   const isVideoFile = () => fileType === CSV_TYPES.VIDEO;
+  
+  // Kontrollera om filen är från fel plattform (Facebook/Instagram)
+  const isFacebookFile = () => fileType === CSV_TYPES.FACEBOOK;
+  const isInstagramFile = () => fileType === CSV_TYPES.INSTAGRAM;
+  const isUnknownFile = () => fileType === CSV_TYPES.UNKNOWN;
+  const isWrongPlatform = () => isFacebookFile() || isInstagramFile() || isUnknownFile();
 
   return {
     file,
@@ -117,6 +135,11 @@ export function useFileDetection() {
     resetFile,
     getFileTypeDisplayName,
     isOverviewFile,
-    isVideoFile
+    isVideoFile,
+    isFacebookFile,
+    isInstagramFile,
+    isUnknownFile,
+    isWrongPlatform,
+    wrongPlatform
   };
 }

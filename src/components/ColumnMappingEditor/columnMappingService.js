@@ -12,7 +12,9 @@ import {
   CSV_TYPES, 
   OVERVIEW_FIELDS, 
   VIDEO_FIELDS,
-  FIELD_CATEGORIES
+  FIELD_CATEGORIES,
+  OVERVIEW_FIELDS_ENGLISH,
+  VIDEO_FIELDS_ENGLISH
 } from '@/utils/constants';
 
 // Cachade mappningar för prestanda
@@ -38,16 +40,43 @@ export function normalizeText(text) {
 /**
  * Hämtar standardkolumnmappningar för en viss CSV-typ
  * @param {string} csvType - CSV-typ (overview eller video)
+ * @param {boolean} swedishPreferred - Om svenska mappningar ska prioriteras (annars engelska)
  * @returns {Object} - Standardkolumnmappningar
  */
-export function getDefaultMappings(csvType) {
-  const fieldsToUse = csvType === CSV_TYPES.OVERVIEW ? OVERVIEW_FIELDS : VIDEO_FIELDS;
-  
-  // Skapa mappningar där värdet (internt namn) blir nyckeln och displaynamnet blir värdet
-  return Object.entries(fieldsToUse).reduce((acc, [internalName, displayName]) => {
-    acc[displayName] = internalName;
-    return acc;
-  }, {});
+export function getDefaultMappings(csvType, swedishPreferred = true) {
+  if (csvType === CSV_TYPES.OVERVIEW) {
+    // Skapa mappningar där värdet (internt namn) blir nyckeln och displaynamnet blir värdet
+    const swedishMappings = Object.entries(OVERVIEW_FIELDS).reduce((acc, [internalName, displayName]) => {
+      acc[displayName] = internalName;
+      return acc;
+    }, {});
+    
+    const englishMappings = Object.entries(OVERVIEW_FIELDS_ENGLISH).reduce((acc, [internalName, displayName]) => {
+      acc[displayName] = internalName;
+      return acc;
+    }, {});
+    
+    // Om svenska föredras, återvänd de svenska mappningarna först (så att svenska visas i UI)
+    return swedishPreferred 
+      ? { ...englishMappings, ...swedishMappings } // Svenska överskriver engelska
+      : { ...swedishMappings, ...englishMappings }; // Engelska överskriver svenska
+  } else {
+    // Skapa mappningar för video
+    const swedishMappings = Object.entries(VIDEO_FIELDS).reduce((acc, [internalName, displayName]) => {
+      acc[displayName] = internalName;
+      return acc;
+    }, {});
+    
+    const englishMappings = Object.entries(VIDEO_FIELDS_ENGLISH).reduce((acc, [internalName, displayName]) => {
+      acc[displayName] = internalName;
+      return acc;
+    }, {});
+    
+    // Om svenska föredras, återvänd de svenska mappningarna först (så att svenska visas i UI)
+    return swedishPreferred 
+      ? { ...englishMappings, ...swedishMappings } // Svenska överskriver engelska  
+      : { ...swedishMappings, ...englishMappings }; // Engelska överskriver svenska
+  }
 }
 
 /**
@@ -67,13 +96,22 @@ export function getAlternativeNames(internalName, currentMappings) {
     }
   }
   
-  // Lägg till standardnamn
+  // Lägg till standardnamn (both Swedish and English)
   if (internalName in OVERVIEW_FIELDS) {
     names.add(OVERVIEW_FIELDS[internalName]);
   }
   
   if (internalName in VIDEO_FIELDS) {
     names.add(VIDEO_FIELDS[internalName]);
+  }
+  
+  // Add English variants
+  if (internalName in OVERVIEW_FIELDS_ENGLISH) {
+    names.add(OVERVIEW_FIELDS_ENGLISH[internalName]);
+  }
+  
+  if (internalName in VIDEO_FIELDS_ENGLISH) {
+    names.add(VIDEO_FIELDS_ENGLISH[internalName]);
   }
   
   // Lägg till några vanliga varianter
@@ -83,12 +121,16 @@ export function getAlternativeNames(internalName, currentMappings) {
     'shares': ['Delningar', 'Shares', 'Share Count'],
     'comments': ['Kommentarer', 'Comments', 'Comment Count'],
     'views': ['Visningar', 'Videovisningar', 'Views', 'Video Views'],
-    'reach': ['Räckvidd', 'Reach', 'Målgrupp som nåtts'],
+    'reach': ['Räckvidd', 'Reach', 'Målgrupp som nåtts', 'Reached audience'],
     'profile_views': ['Profilvisningar', 'Profile Views'],
     'date': ['Datum', 'Date', 'Dag'],
     'title': ['Videotitel', 'Video Title', 'Titel'],
-    'publish_time': ['Publiceringstid', 'Publish Time', 'Publish Date'],
-    'favorites': ['Lägg till i Favoriter', 'Favorites', 'Add to Favorites']
+    'publish_time': ['Publiceringstid', 'Publish Time', 'Publish Date', 'Publishing time'],
+    'favorites': ['Lägg till i Favoriter', 'Favorites', 'Add to Favorites', 'Add to favorites'],
+    'new_followers': ['Nya följare', 'New Followers', 'New followers'],
+    'lost_followers': ['Tappade följare', 'Lost Followers', 'Lost followers'],
+    'follower_net_growth': ['Nettotillväxt', 'Net Growth', 'Net growth'],
+    'video_views': ['Videovisningar', 'Video Views', 'Video views']
   };
   
   if (internalName in commonVariants) {
@@ -115,7 +157,7 @@ export async function getCurrentMappings(csvType) {
     
     // Om inga mappningar hittades, använd standard
     if (!mappings || Object.keys(mappings).length === 0) {
-      mappings = getDefaultMappings(csvType);
+      mappings = getDefaultMappings(csvType, true); // Föredra svenska
     }
     
     // Cacha mappningarna
@@ -126,7 +168,7 @@ export async function getCurrentMappings(csvType) {
     console.error(`Fel vid hämtning av mappningar för ${csvType}:`, error);
     
     // Vid fel, returnera standardmappningar
-    const defaultMappings = getDefaultMappings(csvType);
+    const defaultMappings = getDefaultMappings(csvType, true); // Föredra svenska
     cachedMappings[csvType] = defaultMappings;
     
     return defaultMappings;
@@ -161,8 +203,8 @@ export async function updateMappings(csvType, mappings) {
  */
 export async function resetMappings(csvType) {
   try {
-    // Hämta standardmappningar
-    const defaultMappings = getDefaultMappings(csvType);
+    // Hämta standardmappningar med svensk preferens
+    const defaultMappings = getDefaultMappings(csvType, true);
     
     // Spara standardmappningar
     await saveColumnMappings(csvType, defaultMappings);

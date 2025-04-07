@@ -12,10 +12,13 @@ import {
   FileType2, 
   Calendar,
   Trash, 
-  Plus
+  Plus,
+  AlertTriangle,
+  FileWarning,
+  Info
 } from 'lucide-react';
 import { getColumnMappings, saveAccountData } from '@/utils/webStorageService';
-import { processTikTokData, getDefaultColumnMappings, detectCSVType } from '@/utils/webDataProcessor';
+import { processTikTokData, getDefaultColumnMappings, detectCSVType, checkWrongPlatform, validateRequiredColumns } from '@/utils/webDataProcessor';
 import { CSV_TYPES, CSV_TYPE_DISPLAY_NAMES } from '@/utils/constants';
 import { cn, formatDate } from '@/utils/utils';
 import Papa from 'papaparse';
@@ -42,6 +45,8 @@ export function MultiFileUploader({ account, onSuccess, onCancel, onCreateAccoun
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState(null);
   const [uploadSuccess, setUploadSuccess] = useState(false);
+  const [missingColumns, setMissingColumns] = useState({});
+  const [wrongPlatformFiles, setWrongPlatformFiles] = useState({});
   
   // Filinputs
   const fileInputRef = useRef(null);
@@ -96,6 +101,18 @@ export function MultiFileUploader({ account, onSuccess, onCancel, onCreateAccoun
                 const detectedType = detectCSVType(results.meta.fields);
                 console.log(`Detekterad filtyp för ${file.name}: ${detectedType}`);
                 
+                // Kontrollera om det är en annan plattform än TikTok
+                const wrongPlatform = checkWrongPlatform(detectedType);
+                if (wrongPlatform) {
+                  // Spara info om felaktig plattform
+                  setWrongPlatformFiles(prev => ({
+                    ...prev,
+                    [file.name]: wrongPlatform
+                  }));
+                  
+                  // Vi fortsätter ändå för att visa informationen, men markerar det som felaktig plattform
+                }
+                
                 // Hitta datumfält baserat på filtyp
                 let dateField;
                 if (detectedType === CSV_TYPES.OVERVIEW) {
@@ -104,7 +121,7 @@ export function MultiFileUploader({ account, onSuccess, onCancel, onCreateAccoun
                     field.toLowerCase().includes('datum') || 
                     field.toLowerCase().includes('date')
                   );
-                } else {
+                } else if (detectedType === CSV_TYPES.VIDEO) {
                   // Leta efter publiceringsdatum i videodata
                   dateField = results.meta.fields.find(field => 
                     field.toLowerCase().includes('publiceringstid') || 
@@ -141,13 +158,34 @@ export function MultiFileUploader({ account, onSuccess, onCancel, onCreateAccoun
                   }
                 }
                 
+                // Validera kolumner för TikTok-filer
+                if (detectedType === CSV_TYPES.OVERVIEW || detectedType === CSV_TYPES.VIDEO) {
+                  // Hämta kolumnmappningar för denna filtyp och validera
+                  getColumnMappings(detectedType).then(mappings => {
+                    // Om inga mappningar finns, använd standard
+                    if (!mappings || Object.keys(mappings).length === 0) {
+                      mappings = getDefaultColumnMappings(detectedType);
+                    }
+                    
+                    // Validera kolumner
+                    const validation = validateRequiredColumns(results.meta.fields, mappings, detectedType);
+                    if (!validation.isValid) {
+                      setMissingColumns(prev => ({
+                        ...prev,
+                        [file.name]: validation.missingColumns
+                      }));
+                    }
+                  });
+                }
+                
                 resolve({
                   file,
                   detectedType,
                   dateRange,
                   content,  // Spara hela innehållet för senare bearbetning
                   headers: results.meta.fields,
-                  rowCount: results.data.length
+                  rowCount: results.data.length,
+                  wrongPlatform
                 });
               } catch (err) {
                 console.error('Fel vid analys av CSV-fil:', err);
@@ -191,6 +229,8 @@ export function MultiFileUploader({ account, onSuccess, onCancel, onCreateAccoun
     });
     
     setCsvFiles(newFiles);
+    setMissingColumns({});
+    setWrongPlatformFiles({});
     
     // Reset file input
     if (fileInputRef.current) {
@@ -212,6 +252,30 @@ export function MultiFileUploader({ account, onSuccess, onCancel, onCreateAccoun
   const handleRemoveFile = (fileToRemove) => {
     setCsvFiles(csvFiles.filter(file => file !== fileToRemove));
     setAnalyzedFiles(analyzedFiles.filter(item => item.file !== fileToRemove));
+    
+    // Ta bort saknade kolumner för denna fil
+    const updatedMissingColumns = { ...missingColumns };
+    delete updatedMissingColumns[fileToRemove.name];
+    setMissingColumns(updatedMissingColumns);
+    
+    // Ta bort info om fel plattform
+    const updatedPlatformFiles = { ...wrongPlatformFiles };
+    delete updatedPlatformFiles[fileToRemove.name];
+    setWrongPlatformFiles(updatedPlatformFiles);
+  };
+
+  /**
+   * Kontrollera om någon fil är från fel plattform
+   */
+  const hasWrongPlatformFiles = () => {
+    return Object.keys(wrongPlatformFiles).length > 0;
+  };
+
+  /**
+   * Kontrollera om en specifik fil är från fel plattform
+   */
+  const isWrongPlatformFile = (fileName) => {
+    return wrongPlatformFiles[fileName] !== undefined;
   };
 
   /**
@@ -226,6 +290,12 @@ export function MultiFileUploader({ account, onSuccess, onCancel, onCreateAccoun
     
     if (csvFiles.length === 0) {
       setError('Du måste välja minst en fil att ladda upp');
+      return;
+    }
+    
+    // Kontrollera om alla filer är felaktiga plattformar
+    if (hasWrongPlatformFiles() && Object.keys(wrongPlatformFiles).length === csvFiles.length) {
+      setError('Alla valda filer är från fel plattform. Välj TikTok-exportfiler istället.');
       return;
     }
     
@@ -262,9 +332,17 @@ export function MultiFileUploader({ account, onSuccess, onCancel, onCreateAccoun
         video: null
       };
       
+      const newMissingColumns = { ...missingColumns };
+      
       // Ladda upp varje fil
       for (let i = 0; i < analyzedFiles.length; i++) {
         const analyzedFile = analyzedFiles[i];
+        
+        // Hoppa över filer från fel plattform
+        if (isWrongPlatformFile(analyzedFile.file.name)) {
+          console.warn(`Skippar fil från fel plattform: ${analyzedFile.file.name}`);
+          continue;
+        }
         
         if (!analyzedFile.detectedType || !analyzedFile.content) {
           console.warn('Hopping över fil utan detekterad typ eller innehåll:', analyzedFile.file?.name);
@@ -299,6 +377,11 @@ export function MultiFileUploader({ account, onSuccess, onCancel, onCreateAccoun
           // Stoppa progressuppdateringen
           clearInterval(progressUpdater);
           
+          // Kontrollera om det finns saknade kolumner och spara dem
+          if (processedData.meta.missingColumns && processedData.meta.missingColumns.length > 0) {
+            newMissingColumns[analyzedFile.file.name] = processedData.meta.missingColumns;
+          }
+          
           // Validera att vi har korrekt data
           if (!processedData.data || !Array.isArray(processedData.data) || processedData.data.length === 0) {
             console.warn('Ingen data bearbetades från filen');
@@ -332,6 +415,11 @@ export function MultiFileUploader({ account, onSuccess, onCancel, onCreateAccoun
         }
       }
       
+      // Uppdatera saknade kolumner till state
+      if (Object.keys(newMissingColumns).length > 0) {
+        setMissingColumns(newMissingColumns);
+      }
+      
       // Färdig!
       setUploadStage('Uppladdning slutförd');
       setUploadProgress(100);
@@ -356,7 +444,9 @@ export function MultiFileUploader({ account, onSuccess, onCancel, onCreateAccoun
 
   // Kontrollera om vi har filer av en viss typ
   const hasFileType = (type) => {
-    return analyzedFiles.some(item => item.detectedType === type);
+    return analyzedFiles.some(item => 
+      item.detectedType === type && !isWrongPlatformFile(item.file.name)
+    );
   };
 
   // Visa uppladdningsframgång
@@ -423,6 +513,23 @@ export function MultiFileUploader({ account, onSuccess, onCancel, onCreateAccoun
           </div>
         )}
 
+        {/* Fel plattformsvarning */}
+        {hasWrongPlatformFiles() && (
+          <Alert variant="destructive" className="animate-in fade-in duration-200">
+            <FileWarning className="h-4 w-4" />
+            <AlertTitle>Felaktiga filer upptäckta</AlertTitle>
+            <AlertDescription>
+              <p>Följande filer är inte TikTok-statistikfiler:</p>
+              <ul className="list-disc pl-6 mt-1">
+                {Object.entries(wrongPlatformFiles).map(([fileName, info]) => (
+                  <li key={fileName}><strong>{fileName}</strong> - {info.platform} statistik</li>
+                ))}
+              </ul>
+              <p className="mt-2">Denna app stödjer endast TikTok-statistikfiler. Vänligen ta bort felaktiga filer och ladda upp TikTok-exports.</p>
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Filuppladdning */}
         <div className="space-y-4">
           <h3 className="text-lg font-medium">Ladda upp data</h3>
@@ -472,22 +579,40 @@ export function MultiFileUploader({ account, onSuccess, onCancel, onCreateAccoun
               const fileType = analyzedFile?.detectedType;
               const dateRange = analyzedFile?.dateRange;
               const rowCount = analyzedFile?.rowCount || 0;
+              const hasMissingColumns = missingColumns[file.name] && missingColumns[file.name].length > 0;
+              const isWrongPlatform = isWrongPlatformFile(file.name);
               
               return (
-                <div key={index} className="border rounded-lg p-4 bg-muted/10">
+                <div key={index} className={cn(
+                  "border rounded-lg p-4",
+                  isWrongPlatform ? "bg-red-50 border-red-200" : "bg-muted/10"
+                )}>
                   <div className="flex justify-between items-center">
                     <div className="flex items-center space-x-3">
-                      <FileType2 className="h-6 w-6 text-primary" />
+                      <FileType2 className={cn(
+                        "h-6 w-6",
+                        isWrongPlatform ? "text-red-500" : "text-primary"
+                      )} />
                       <div>
                         <p className="font-medium">{file.name}</p>
                         <p className="text-xs text-muted-foreground">
                           {file.size ? `${(file.size / 1024).toFixed(1)} KB` : ''}
-                          {rowCount > 0 && fileType && 
+                          
+                          {isWrongPlatform ? (
+                            <span className="text-red-600 ml-2">
+                              • Fel plattform: {wrongPlatformFiles[file.name].platform}
+                            </span>
+                          ) : (
+                            rowCount > 0 && fileType && 
                             <span className="text-green-600 ml-2">
                               • {rowCount} rader • {CSV_TYPE_DISPLAY_NAMES[fileType]} ✓
                             </span>
+                          )}
+                          
+                          {!fileType && !isWrongPlatform && <span className="text-yellow-600 ml-2">• Analyserar...</span>}
+                          {hasMissingColumns && !isWrongPlatform && 
+                            <span className="text-yellow-600 ml-2">• Saknade kolumner!</span>
                           }
-                          {!fileType && <span className="text-yellow-600 ml-2">• Analyserar...</span>}
                         </p>
                       </div>
                     </div>
@@ -503,12 +628,37 @@ export function MultiFileUploader({ account, onSuccess, onCancel, onCreateAccoun
                     </Button>
                   </div>
                   
-                  {dateRange && (
+                  {dateRange && !isWrongPlatform && (
                     <div className="mt-2 flex items-center text-xs text-muted-foreground bg-muted/30 px-2 py-1 rounded-md">
                       <Calendar className="h-3 w-3 mr-1" />
                       <span>
                         {formatDate(dateRange.startDate)} - {formatDate(dateRange.endDate)}
                       </span>
+                    </div>
+                  )}
+                  
+                  {/* Visa information om felaktig plattform */}
+                  {isWrongPlatform && (
+                    <div className="mt-2">
+                      <Alert variant="destructive" className="p-2">
+                        <FileWarning className="h-3 w-3" />
+                        <AlertDescription className="text-xs">
+                          {wrongPlatformFiles[file.name].message}
+                        </AlertDescription>
+                      </Alert>
+                    </div>
+                  )}
+                  
+                  {/* Visa varning om filen har saknade kolumner */}
+                  {hasMissingColumns && !isWrongPlatform && (
+                    <div className="mt-2">
+                      <Alert variant="warning" className="border-yellow-300 bg-yellow-50 p-2">
+                        <AlertTriangle className="h-3 w-3 text-yellow-600" />
+                        <AlertDescription className="text-yellow-700 text-xs">
+                          <span>Saknade kolumner: </span>
+                          <span className="font-medium">{missingColumns[file.name].join(', ')}</span>
+                        </AlertDescription>
+                      </Alert>
                     </div>
                   )}
                 </div>
@@ -517,7 +667,7 @@ export function MultiFileUploader({ account, onSuccess, onCancel, onCreateAccoun
           </div>
 
           {/* Status summary */}
-          {analyzedFiles.length > 0 && (
+          {analyzedFiles.length > 0 && !hasWrongPlatformFiles() && (
             <div className="flex flex-col sm:flex-row gap-4 p-3 border rounded-md bg-muted/5">
               <div className="flex items-center">
                 <span className={`w-3 h-3 rounded-full mr-2 ${hasFileType(CSV_TYPES.OVERVIEW) ? 'bg-green-500' : 'bg-gray-300'}`}></span>
@@ -532,6 +682,23 @@ export function MultiFileUploader({ account, onSuccess, onCancel, onCreateAccoun
                 </span>
               </div>
             </div>
+          )}
+          
+          {/* Warnings about missing columns */}
+          {Object.keys(missingColumns).length > 0 && !hasWrongPlatformFiles() && (
+            <Alert variant="warning" className="mt-4 border-yellow-300 bg-yellow-50">
+              <AlertTriangle className="h-4 w-4 text-yellow-600" />
+              <AlertTitle className="text-yellow-800">Saknade kolumner i CSV-filer</AlertTitle>
+              <AlertDescription className="text-yellow-700">
+                <p>Det saknas förväntade kolumner i dina filer. Detta kan orsaka problem vid databearbetning.</p>
+                <div className="flex items-center mt-2 bg-blue-50 p-2 rounded border border-blue-200">
+                  <Info className="h-4 w-4 text-blue-600 mr-2 flex-shrink-0" />
+                  <span className="text-blue-800 text-sm">
+                    Om TikTok har ändrat sina kolumnnamn, gå till Inställningar &gt; Kolumnmappningar för att uppdatera dem.
+                  </span>
+                </div>
+              </AlertDescription>
+            </Alert>
           )}
           
           {/* Laddningsindikator med förbättrad visuell feedback */}
@@ -577,7 +744,8 @@ export function MultiFileUploader({ account, onSuccess, onCancel, onCreateAccoun
           disabled={
             isUploading || 
             (!account && !accountName.trim()) || 
-            csvFiles.length === 0
+            csvFiles.length === 0 ||
+            (hasWrongPlatformFiles() && Object.keys(wrongPlatformFiles).length === csvFiles.length)
           }
         >
           {isUploading ? (

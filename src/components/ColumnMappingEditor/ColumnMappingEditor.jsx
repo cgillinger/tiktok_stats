@@ -4,7 +4,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '../ui/card';
-import { Save, AlertCircle, CheckCircle2, Loader2, Info, RefreshCw, ArrowLeft } from 'lucide-react';
+import { Save, AlertCircle, CheckCircle2, Loader2, Info, RefreshCw, ArrowLeft, Globe } from 'lucide-react';
 import { 
   getCurrentMappings,
   updateMappings,
@@ -15,7 +15,7 @@ import {
   clearMappingsCache
 } from './columnMappingService';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs';
-import { CSV_TYPES, CSV_TYPE_DISPLAY_NAMES } from '@/utils/constants';
+import { CSV_TYPES, CSV_TYPE_DISPLAY_NAMES, OVERVIEW_FIELDS, OVERVIEW_FIELDS_ENGLISH, VIDEO_FIELDS, VIDEO_FIELDS_ENGLISH } from '@/utils/constants';
 
 /**
  * Komponent för att redigera kolumnmappningar för CSV-filer
@@ -115,7 +115,7 @@ export function ColumnMappingEditor({ onBack }) {
   };
 
   // Hantera värdeändringar i input-fält
-  const handleValueChange = (originalName, newValue) => {
+  const handleValueChange = (originalName, internalName, newValue, language) => {
     if (!newValue.trim()) {
       setError('Kolumnnamn kan inte vara tomt');
       return;
@@ -124,10 +124,15 @@ export function ColumnMappingEditor({ onBack }) {
     console.log('ColumnMappingEditor: Ändrar mappning');
     console.log('Från:', originalName);
     console.log('Till:', newValue);
+    console.log('Språk:', language);
     
-    // Kontrollera om det nya värdet redan finns som en nyckel
-    if (newValue !== originalName && mappings[newValue] !== undefined) {
-      setError(`Kolumnnamnet "${newValue}" används redan. Välj ett annat namn.`);
+    // Kontrollera om det nya värdet redan finns som en nyckel för ett annat fält
+    const existingMapping = Object.entries(mappings).find(([key, value]) => 
+      key !== originalName && key === newValue && value !== internalName
+    );
+    
+    if (existingMapping) {
+      setError(`Kolumnnamnet "${newValue}" används redan för fältet "${existingMapping[1]}". Välj ett annat namn.`);
       return;
     }
     
@@ -135,21 +140,15 @@ export function ColumnMappingEditor({ onBack }) {
       // Skapa en kopia av mappningarna
       const newMappings = { ...prev };
       
-      // Hämta det interna namn som denna kolumn ska mappa till
-      const internalName = newMappings[originalName];
-      
-      // Om inget internt namn hittas, logga fel men fortsätt inte med ändringar
-      if (internalName === undefined) {
-        console.error(`Internt namn saknas för "${originalName}"`);
-        return prev;
+      // Om vi tar bort en befintlig mappning, men ser till att det finns en annan mappning för samma interna fält
+      if (originalName && originalName !== newValue) {
+        // Ta bort den gamla mappningen
+        delete newMappings[originalName];
       }
       
-      // Skapa den nya mappningen först, ta sedan bort den gamla
-      newMappings[newValue] = internalName;
-      
-      // Ta bara bort den gamla mappningen om den skiljer sig från den nya
-      if (originalName !== newValue) {
-        delete newMappings[originalName];
+      // Lägg till den nya mappningen
+      if (newValue && newValue.trim() !== '') {
+        newMappings[newValue] = internalName;
       }
       
       console.log('ColumnMappingEditor: Nya mappningar:', newMappings);
@@ -169,25 +168,78 @@ export function ColumnMappingEditor({ onBack }) {
   };
   
   // Hantera klick på ett exempel för att kopiera det
-  const handleExampleClick = (exampleName, originalName) => {
-    handleValueChange(originalName, exampleName);
+  const handleExampleClick = (exampleName, internalName, language) => {
+    // Hitta befintlig mappning för detta interna fält och språk
+    let existingName = null;
+    
+    if (language === 'sv') {
+      // Leta efter en svensk mappning
+      for (const [key, value] of Object.entries(mappings)) {
+        if (value === internalName && OVERVIEW_FIELDS[internalName] === key || VIDEO_FIELDS[internalName] === key) {
+          existingName = key;
+          break;
+        }
+      }
+    } else {
+      // Leta efter en engelsk mappning
+      for (const [key, value] of Object.entries(mappings)) {
+        if (value === internalName && OVERVIEW_FIELDS_ENGLISH[internalName] === key || VIDEO_FIELDS_ENGLISH[internalName] === key) {
+          existingName = key;
+          break;
+        }
+      }
+    }
+    
+    handleValueChange(existingName, internalName, exampleName, language);
   };
 
-  // Hämtar ordnade mappningar för en grupp
-  const getOrderedMappingsForGroup = (internalNames) => {
-    // Skapa en omvänd mappning (internt namn -> originalnamn)
-    const internalToOriginal = Object.entries(mappings).reduce((acc, [original, internal]) => {
-      acc[internal] = original;
-      return acc;
-    }, {});
+  // Hämta alla mappningar för ett internt fältnamn
+  const getMappingsForInternalName = (internalName) => {
+    return Object.entries(mappings)
+      .filter(([_, value]) => value === internalName)
+      .map(([key, _]) => key);
+  };
 
-    // Returnera mappningar i ordningen som specificerats av internalNames
-    return internalNames
-      .map(internalName => ({
-        originalName: internalToOriginal[internalName],
-        internalName: internalName
-      }))
-      .filter(mapping => mapping.originalName !== undefined);
+  // Hämta den svenska mappningen för ett internt fält
+  const getSwedishMapping = (internalName) => {
+    // Standardmappning från konstanter
+    const defaultMapping = csvType === CSV_TYPES.OVERVIEW 
+      ? OVERVIEW_FIELDS[internalName] 
+      : VIDEO_FIELDS[internalName];
+    
+    // Leta efter en befintlig svensk mappning i mappings
+    for (const [key, value] of Object.entries(mappings)) {
+      if (value === internalName) {
+        // Om nyckeln matchar standardmappningen eller innehåller svenska tecken (å, ä, ö)
+        if (key === defaultMapping || /[åäö]/i.test(key)) {
+          return key;
+        }
+      }
+    }
+    
+    // Om ingen hittades, returnera standardmappningen
+    return defaultMapping;
+  };
+
+  // Hämta den engelska mappningen för ett internt fält
+  const getEnglishMapping = (internalName) => {
+    // Standardmappning från konstanter
+    const defaultMapping = csvType === CSV_TYPES.OVERVIEW 
+      ? OVERVIEW_FIELDS_ENGLISH[internalName] 
+      : VIDEO_FIELDS_ENGLISH[internalName];
+    
+    // Leta efter en befintlig engelsk mappning i mappings
+    for (const [key, value] of Object.entries(mappings)) {
+      if (value === internalName) {
+        // Om nyckeln matchar standardmappningen eller inte innehåller svenska tecken (å, ä, ö)
+        if (key === defaultMapping || (!/[åäö]/i.test(key) && key !== OVERVIEW_FIELDS[internalName] && key !== VIDEO_FIELDS[internalName])) {
+          return key;
+        }
+      }
+    }
+    
+    // Om ingen hittades, returnera standardmappningen
+    return defaultMapping;
   };
 
   // Visa laddningsindikator
@@ -274,10 +326,16 @@ export function ColumnMappingEditor({ onBack }) {
             <ol className="list-decimal pl-5 space-y-1">
               <li>Ladda upp en ny CSV-fil från TikTok</li>
               <li>Om filen inte kan läsas in, notera vilka kolumner som saknas</li>
-              <li>Hitta kolumnen med det gamla namnet under <strong>Originalnamn</strong> och ändra det till det nya namnet som TikTok nu använder</li>
+              <li>Hitta kolumnen med det gamla namnet under <strong>Svenska</strong> eller <strong>Engelska</strong> och ändra det till det nya namnet som TikTok nu använder</li>
               <li>Klicka på <strong>Spara ändringar</strong></li>
               <li>Ladda upp CSV-filen igen</li>
             </ol>
+            <div className="mt-2 text-blue-600 font-medium flex items-center">
+              <Globe className="h-4 w-4 mr-1" />
+              <span>
+                Uppdatera både svenska och engelska kolumnnamn för bästa kompatibilitet.
+              </span>
+            </div>
           </div>
 
           {/* Mappningstabeller per kategori */}
@@ -288,64 +346,108 @@ export function ColumnMappingEditor({ onBack }) {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-1/3">Fältnamn</TableHead>
-                      <TableHead className="w-1/2">Originalnamn från TikTok CSV</TableHead>
+                      <TableHead className="w-1/4">Fältnamn</TableHead>
+                      <TableHead className="w-1/3">Svenska kolumnnamn</TableHead>
+                      <TableHead className="w-1/3">Engelska kolumnnamn</TableHead>
                       <TableHead className="w-10"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {getOrderedMappingsForGroup(internalNames).map(({ originalName, internalName }) => (
-                      <React.Fragment key={internalName}>
-                        <TableRow>
-                          <TableCell className="font-medium">
-                            {getDisplayName(internalName, csvType)}
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              value={originalName}
-                              onChange={(e) => handleValueChange(originalName, e.target.value)}
-                              className="max-w-sm"
-                              disabled={isSaving || isResetting}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Button 
-                              variant="ghost" 
-                              size="sm"
-                              onClick={() => toggleExamples(internalName)}
-                              title="Visa exempel på vanliga kolumnnamn"
-                            >
-                              <Info className="h-4 w-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                        
-                        {/* Visa exempel på möjliga kolumnnamn */}
-                        {showExamples[internalName] && (
+                    {internalNames.map(internalName => {
+                      const swedishMapping = getSwedishMapping(internalName);
+                      const englishMapping = getEnglishMapping(internalName);
+                      
+                      return (
+                        <React.Fragment key={internalName}>
                           <TableRow>
-                            <TableCell colSpan={3} className="bg-slate-50">
-                              <div className="p-2 text-sm">
-                                <p className="font-medium mb-1">Vanliga kolumnnamn för detta fält:</p>
-                                <div className="flex flex-wrap gap-1 pl-2 text-gray-600">
-                                  {getAlternativeNames(internalName, mappings).map((name, i) => (
-                                    <button
-                                      key={i} 
-                                      className="px-2 py-1 rounded hover:bg-blue-100 hover:text-blue-600 border border-gray-200"
-                                      onClick={() => handleExampleClick(name, originalName)}
-                                    >
-                                      {name}
-                                    </button>
-                                  ))}
-                                </div>
-                                <p className="mt-2 text-xs text-gray-500">
-                                  Klicka på något av namnen ovan för att använda det.
-                                </p>
-                              </div>
+                            <TableCell className="font-medium">
+                              {getDisplayName(internalName, csvType)}
+                            </TableCell>
+                            {/* Svenska mappning */}
+                            <TableCell>
+                              <Input
+                                value={swedishMapping || ''}
+                                onChange={(e) => handleValueChange(swedishMapping, internalName, e.target.value, 'sv')}
+                                className="max-w-sm"
+                                disabled={isSaving || isResetting}
+                              />
+                            </TableCell>
+                            {/* Engelska mappning */}
+                            <TableCell>
+                              <Input
+                                value={englishMapping || ''}
+                                onChange={(e) => handleValueChange(englishMapping, internalName, e.target.value, 'en')}
+                                className="max-w-sm"
+                                disabled={isSaving || isResetting}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Button 
+                                variant="ghost" 
+                                size="sm"
+                                onClick={() => toggleExamples(internalName)}
+                                title="Visa exempel på vanliga kolumnnamn"
+                              >
+                                <Info className="h-4 w-4" />
+                              </Button>
                             </TableCell>
                           </TableRow>
-                        )}
-                      </React.Fragment>
-                    ))}
+                          
+                          {/* Visa exempel på möjliga kolumnnamn */}
+                          {showExamples[internalName] && (
+                            <TableRow>
+                              <TableCell colSpan={4} className="bg-slate-50">
+                                <div className="p-2 text-sm">
+                                  <p className="font-medium mb-1">Vanliga kolumnnamn för detta fält:</p>
+                                  
+                                  <div className="space-y-2">
+                                    {/* Svenska exempel */}
+                                    <div>
+                                      <p className="text-xs font-medium text-muted-foreground">Svenska:</p>
+                                      <div className="flex flex-wrap gap-1 pl-2 text-gray-600">
+                                        {getAlternativeNames(internalName, mappings)
+                                          .filter(name => /[åäö]/i.test(name) || name === OVERVIEW_FIELDS[internalName] || name === VIDEO_FIELDS[internalName])
+                                          .map((name, i) => (
+                                          <button
+                                            key={i} 
+                                            className="px-2 py-1 rounded hover:bg-blue-100 hover:text-blue-600 border border-gray-200"
+                                            onClick={() => handleExampleClick(name, internalName, 'sv')}
+                                          >
+                                            {name}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                    
+                                    {/* Engelska exempel */}
+                                    <div>
+                                      <p className="text-xs font-medium text-muted-foreground">Engelska:</p>
+                                      <div className="flex flex-wrap gap-1 pl-2 text-gray-600">
+                                        {getAlternativeNames(internalName, mappings)
+                                          .filter(name => !/[åäö]/i.test(name) && name !== OVERVIEW_FIELDS[internalName] && name !== VIDEO_FIELDS[internalName])
+                                          .map((name, i) => (
+                                          <button
+                                            key={i} 
+                                            className="px-2 py-1 rounded hover:bg-blue-100 hover:text-blue-600 border border-gray-200"
+                                            onClick={() => handleExampleClick(name, internalName, 'en')}
+                                          >
+                                            {name}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  
+                                  <p className="mt-2 text-xs text-gray-500">
+                                    Klicka på något av namnen ovan för att använda det.
+                                  </p>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>

@@ -2,9 +2,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '../ui/card';
 import { Button } from '../ui/button';
 import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
-import { UploadCloud, FileWarning, Loader2, CheckCircle2, AlertCircle, FileType2, ArrowLeft, AlertTriangle, Calendar } from 'lucide-react';
+import { UploadCloud, FileWarning, Loader2, CheckCircle2, AlertCircle, FileType2, ArrowLeft, AlertTriangle, Calendar, Info } from 'lucide-react';
 import { handleFileUpload } from '@/utils/webStorageService';
-import { processTikTokData, getDefaultColumnMappings, detectCSVType } from '@/utils/webDataProcessor';
+import { processTikTokData, getDefaultColumnMappings, detectCSVType, validateRequiredColumns } from '@/utils/webDataProcessor';
 import { useFileDetection } from './useFileDetection';
 import { CSV_TYPES, CSV_TYPE_DISPLAY_NAMES } from '@/utils/constants';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
@@ -27,6 +27,7 @@ export function FileUploader({ account, onSuccess, onCancel, forcedFileType = nu
   const [selectedFileType, setSelectedFileType] = useState(forcedFileType);
   const [wrongFileTypeWarning, setWrongFileTypeWarning] = useState(null);
   const [dateRange, setDateRange] = useState(null);
+  const [missingColumns, setMissingColumns] = useState([]);
   const fileInputRef = useRef(null);
   
   const { 
@@ -37,15 +38,22 @@ export function FileUploader({ account, onSuccess, onCancel, forcedFileType = nu
     isDetecting, 
     error, 
     resetFile,
-    getFileTypeDisplayName
+    getFileTypeDisplayName,
+    wrongPlatform,
+    isWrongPlatform
   } = useFileDetection();
 
   // När en fil väljs, försök att identifiera datumintervallet
   useEffect(() => {
     if (file && fileContent && !isDetecting) {
       analyzeDateRange(fileContent, fileType || forcedFileType);
+      
+      // Validera kolumner om det är en TikTok-fil
+      if (!isWrongPlatform() && fileType) {
+        validateColumns(fileContent, fileType || forcedFileType);
+      }
     }
-  }, [file, fileContent, isDetecting, fileType, forcedFileType]);
+  }, [file, fileContent, isDetecting, fileType, forcedFileType, isWrongPlatform]);
 
   // Hantera när en fil väljs
   const handleFileChange = (event) => {
@@ -55,6 +63,42 @@ export function FileUploader({ account, onSuccess, onCancel, forcedFileType = nu
       setUploadError(null);
       setWrongFileTypeWarning(null);
       setDateRange(null);
+      setMissingColumns([]);
+    }
+  };
+
+  // Validera kolumner mot förväntade kolumner
+  const validateColumns = async (content, csvType) => {
+    if (!content || !csvType) return;
+    
+    try {
+      // Hämta kolumnmappningar för denna filtyp
+      let mappings = await getColumnMappings(csvType);
+      
+      // Om inga mappningar finns, använd standard
+      if (!mappings || Object.keys(mappings).length === 0) {
+        mappings = getDefaultColumnMappings(csvType);
+      }
+      
+      // Parsa bara headers från CSV för validering
+      Papa.parse(content, {
+        header: true,
+        preview: 1,
+        skipEmptyLines: true,
+        complete: (results) => {
+          if (results.meta && results.meta.fields) {
+            // Validera kolumner
+            const validation = validateRequiredColumns(results.meta.fields, mappings, csvType);
+            if (!validation.isValid) {
+              setMissingColumns(validation.missingColumns);
+            } else {
+              setMissingColumns([]);
+            }
+          }
+        }
+      });
+    } catch (err) {
+      console.error('Fel vid validering av kolumner:', err);
     }
   };
 
@@ -135,6 +179,7 @@ export function FileUploader({ account, onSuccess, onCancel, forcedFileType = nu
       setUploadError(null);
       setWrongFileTypeWarning(null);
       setDateRange(null);
+      setMissingColumns([]);
     }
   };
 
@@ -145,7 +190,7 @@ export function FileUploader({ account, onSuccess, onCancel, forcedFileType = nu
 
   // Check if detected file type matches expected type
   React.useEffect(() => {
-    if (fileType && forcedFileType && fileType !== forcedFileType) {
+    if (fileType && forcedFileType && fileType !== forcedFileType && !isWrongPlatform()) {
       setWrongFileTypeWarning({
         detectedType: fileType,
         expectedType: forcedFileType
@@ -153,7 +198,7 @@ export function FileUploader({ account, onSuccess, onCancel, forcedFileType = nu
     } else {
       setWrongFileTypeWarning(null);
     }
-  }, [fileType, forcedFileType]);
+  }, [fileType, forcedFileType, isWrongPlatform]);
 
   // Processar och laddar upp datan
   const handleUpload = async () => {
@@ -166,9 +211,16 @@ export function FileUploader({ account, onSuccess, onCancel, forcedFileType = nu
       setUploadError('Inget konto valt');
       return;
     }
+    
+    // Förhindra uppladdning om fel plattform
+    if (isWrongPlatform()) {
+      setUploadError(wrongPlatform ? wrongPlatform.message : 'Detta är inte en giltig TikTok-statistikfil');
+      return;
+    }
 
     setIsUploading(true);
     setUploadError(null);
+    setMissingColumns([]);
 
     try {
       // Använd vald filtyp (manuellt vald eller forcerad eller automatiskt detekterad)
@@ -188,6 +240,11 @@ export function FileUploader({ account, onSuccess, onCancel, forcedFileType = nu
 
       // Bearbeta data
       const processedData = await processTikTokData(fileContent, mappings, typeToUse);
+      
+      // Kontrollera om det finns saknade kolumner och visa varning
+      if (processedData.meta.missingColumns && processedData.meta.missingColumns.length > 0) {
+        setMissingColumns(processedData.meta.missingColumns);
+      }
       
       // Spara data för detta konto
       await saveAccountData(account.id, typeToUse, processedData.data);
@@ -307,7 +364,7 @@ export function FileUploader({ account, onSuccess, onCancel, forcedFileType = nu
                 </p>
               )}
               
-              {file && !isDetecting && fileType && (
+              {file && !isDetecting && fileType && !isWrongPlatform() && (
                 <div className="flex items-center justify-center space-x-2 text-sm text-primary">
                   <FileType2 className="h-4 w-4" />
                   <span>Identifierad som: {getFileTypeDisplayName()}</span>
@@ -321,7 +378,7 @@ export function FileUploader({ account, onSuccess, onCancel, forcedFileType = nu
                 </div>
               )}
               
-              {file && dateRange && (
+              {file && dateRange && !isWrongPlatform() && (
                 <div className="flex items-center justify-center space-x-2 text-sm text-muted-foreground mt-2">
                   <Calendar className="h-4 w-4" />
                   <span>Period: {formatDate(dateRange.startDate)} - {formatDate(dateRange.endDate)}</span>
@@ -330,6 +387,41 @@ export function FileUploader({ account, onSuccess, onCancel, forcedFileType = nu
             </div>
           </div>
         </div>
+
+        {/* Error for wrong platform file */}
+        {wrongPlatform && (
+          <Alert variant="destructive" className="mt-4">
+            <FileWarning className="h-4 w-4" />
+            <AlertTitle>Fel plattform detekterad: {wrongPlatform.platform}</AlertTitle>
+            <AlertDescription>
+              <p>{wrongPlatform.message}</p>
+              <p className="mt-2">Ladda upp CSV-filer exporterade från TikTok Creator Studio.</p>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Warning for missing columns */}
+        {missingColumns.length > 0 && (
+          <Alert variant="warning" className="mt-4 border-yellow-300 bg-yellow-50">
+            <AlertTriangle className="h-4 w-4 text-yellow-600" />
+            <AlertTitle className="text-yellow-800">Saknade kolumner upptäckta</AlertTitle>
+            <AlertDescription className="text-yellow-700">
+              <p>Följande förväntade kolumner saknas i CSV-filen:</p>
+              <ul className="list-disc pl-6 mt-1 space-y-1">
+                {missingColumns.map((column, index) => (
+                  <li key={index}><strong>{column}</strong></li>
+                ))}
+              </ul>
+              <p className="mt-2">Detta kan orsaka problem med dataanalys. Kontrollera att du har valt rätt filtyp och att CSV-filen har rätt format.</p>
+              <div className="flex items-center mt-2 bg-blue-50 p-2 rounded border border-blue-200">
+                <Info className="h-4 w-4 text-blue-600 mr-2 flex-shrink-0" />
+                <span className="text-blue-800 text-sm">
+                  Om TikTok har ändrat sina kolumnnamn, gå till Inställningar &gt; Kolumnmappningar för att uppdatera dem.
+                </span>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Wrong file type warning */}
         {wrongFileTypeWarning && (
@@ -345,7 +437,7 @@ export function FileUploader({ account, onSuccess, onCancel, forcedFileType = nu
         )}
 
         {/* Error message */}
-        {(error || uploadError) && (
+        {(error || uploadError) && !wrongPlatform && (
           <Alert variant="destructive" className="mt-4">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Fel vid filhantering</AlertTitle>
@@ -353,7 +445,7 @@ export function FileUploader({ account, onSuccess, onCancel, forcedFileType = nu
           </Alert>
         )}
 
-        {file && !error && (
+        {file && !error && !isWrongPlatform() && (
           <div className="mt-4 border rounded-md p-4 bg-muted/20">
             <h4 className="font-medium mb-2">Filtyp</h4>
             <div className="space-y-4">
@@ -397,7 +489,14 @@ export function FileUploader({ account, onSuccess, onCancel, forcedFileType = nu
         
         <Button 
           onClick={handleUpload}
-          disabled={!file || isDetecting || isUploading || !account || (!fileType && !forcedFileType && !selectedFileType)}
+          disabled={
+            !file || 
+            isDetecting || 
+            isUploading || 
+            !account || 
+            isWrongPlatform() || 
+            (!fileType && !forcedFileType && !selectedFileType)
+          }
         >
           {isUploading ? (
             <>

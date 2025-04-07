@@ -3,6 +3,8 @@
  * 
  * Hanterar bearbetning av TikTok CSV-data med stöd för:
  * - Detektering av CSV-typ (Overview eller Video)
+ * - Identifiering av icke-TikTok filer (Facebook, Instagram)
+ * - Validering av nödvändiga kolumner
  * - Mappning av kolumnnamn till interna fältnamn
  * - Beräkning av sammanfattande statistik
  */
@@ -14,6 +16,10 @@ import {
   VIDEO_FIELDS,
   OVERVIEW_CALCULATED_FIELDS,
   VIDEO_CALCULATED_FIELDS,
+  OVERVIEW_FIELDS_ENGLISH,
+  VIDEO_FIELDS_ENGLISH,
+  REQUIRED_OVERVIEW_FIELDS,
+  REQUIRED_VIDEO_FIELDS
 } from './constants';
 
 // ----------------------------------------
@@ -23,44 +29,167 @@ import {
 /**
  * Detekterar vilken typ av CSV det är baserat på kolumnrubriker
  * @param {Array<string>} headers - Lista med kolumnrubriker
- * @returns {string} - CSV-typ (overview eller video)
+ * @returns {string} - CSV-typ (overview, video, facebook, instagram, eller unknown)
  */
 export const detectCSVType = (headers) => {
   if (!headers || !Array.isArray(headers)) {
     throw new Error('Ogiltiga headers för CSV-typdetektering');
   }
   
-  // Normalisera headers
-  const normalizedHeaders = headers.map(h => h.trim().toLowerCase());
+  // Normalisera headers för enklare matchning
+  const normalizedHeaders = headers.map(h => h ? h.trim().toLowerCase() : '');
   
-  // Kontrollera indikatorer för varje typ
-  const overviewMatches = CSV_TYPE_INDICATORS[CSV_TYPES.OVERVIEW].filter(
-    indicator => normalizedHeaders.some(header => header.toLowerCase() === indicator.toLowerCase())
-  ).length;
+  // Skapa ett objekt för att hålla reda på matchningar per CSV-typ
+  const matches = {};
   
-  const videoMatches = CSV_TYPE_INDICATORS[CSV_TYPES.VIDEO].filter(
-    indicator => normalizedHeaders.some(header => header.toLowerCase() === indicator.toLowerCase())
-  ).length;
+  // Räkna antalet matcher för varje CSV-typ
+  for (const [type, indicators] of Object.entries(CSV_TYPE_INDICATORS)) {
+    matches[type] = indicators.filter(
+      indicator => normalizedHeaders.some(header => 
+        header.toLowerCase() === indicator.toLowerCase() || 
+        header.toLowerCase().includes(indicator.toLowerCase())
+      )
+    ).length;
+  }
   
-  // Returner typ baserat på antal matchningar
-  if (overviewMatches > videoMatches) {
-    return CSV_TYPES.OVERVIEW;
-  } else if (videoMatches > overviewMatches) {
-    return CSV_TYPES.VIDEO;
-  } else {
-    // Om det är samma antal matchningar, använd heuristik
+  console.log("CSV typ matchningar:", matches);
+  
+  // Hitta typen med flest matcher
+  let bestMatch = { type: CSV_TYPES.UNKNOWN, count: 0 };
+  
+  for (const [type, count] of Object.entries(matches)) {
+    if (count > bestMatch.count) {
+      bestMatch = { type, count };
+    }
+  }
+  
+  // Om inga betydande matchningar (minst 2), använd heuristik
+  if (bestMatch.count < 2) {
     // Om det finns 'datum' eller 'date', är det troligen overview
     if (normalizedHeaders.some(h => h === 'datum' || h === 'date')) {
       return CSV_TYPES.OVERVIEW;
     }
-    // Om det finns 'videotitel' eller 'video title', är det troligen video
-    if (normalizedHeaders.some(h => h === 'videotitel' || h === 'video title')) {
+    
+    // Om det finns 'videotitel' eller varianter, är det troligen video
+    if (normalizedHeaders.some(h => 
+      h === 'videotitel' || 
+      h === 'video title' || 
+      h === 'title' ||
+      h.includes('video')
+    )) {
       return CSV_TYPES.VIDEO;
     }
     
-    // Fallback till overview
-    return CSV_TYPES.OVERVIEW;
+    // Om vi har Facebook- eller Instagram-relaterade termer
+    if (normalizedHeaders.some(h => h.includes('facebook') || h.includes('page'))) {
+      return CSV_TYPES.FACEBOOK;
+    }
+    
+    if (normalizedHeaders.some(h => h.includes('instagram') || h.includes('insta'))) {
+      return CSV_TYPES.INSTAGRAM;
+    }
+    
+    // Om vi fortfarande inte har en match, returnera UNKNOWN
+    return CSV_TYPES.UNKNOWN;
   }
+  
+  return bestMatch.type;
+};
+
+/**
+ * Validerar att alla nödvändiga kolumner finns i CSV-filen
+ * @param {Array<string>} headers - Lista med kolumnrubriker
+ * @param {Object} columnMappings - Kolumnmappningar
+ * @param {string} csvType - CSV-typ (overview eller video)
+ * @returns {Object} - Resultat av valideringen {isValid, missingColumns}
+ */
+export const validateRequiredColumns = (headers, columnMappings, csvType) => {
+  if (!headers || !Array.isArray(headers) || !columnMappings) {
+    return { 
+      isValid: false, 
+      missingColumns: [], 
+      error: 'Ogiltiga headers eller mappningar för validering' 
+    };
+  }
+  
+  // Normalisera headers
+  const normalizedHeaders = headers.map(h => h ? h.trim().toLowerCase() : '');
+  
+  // Hämta listan över nödvändiga fält baserat på CSV-typ
+  const requiredFields = csvType === CSV_TYPES.OVERVIEW 
+    ? REQUIRED_OVERVIEW_FIELDS 
+    : REQUIRED_VIDEO_FIELDS;
+  
+  // Skapa omvänd mappning (internt fältnamn -> externa kolumnnamn) för att söka efter mappade kolumner
+  const reverseMapping = {};
+  for (const [externalName, internalName] of Object.entries(columnMappings)) {
+    // Det kan finnas flera externa namn som mappar till samma interna namn
+    if (!reverseMapping[internalName]) {
+      reverseMapping[internalName] = [];
+    }
+    reverseMapping[internalName].push(externalName.toLowerCase());
+  }
+  
+  // Kontrollera om varje nödvändigt fält finns i headers (direkt eller via mappning)
+  const missingColumns = [];
+  
+  for (const requiredField of requiredFields) {
+    const externalNames = reverseMapping[requiredField] || [];
+    
+    // Kontrollera om något av de externa namnen finns i headers
+    const found = externalNames.some(name => 
+      normalizedHeaders.includes(name.toLowerCase())
+    );
+    
+    if (!found) {
+      // Hämta visningsnamn för det saknade fältet
+      const displayFields = csvType === CSV_TYPES.OVERVIEW 
+        ? OVERVIEW_FIELDS 
+        : VIDEO_FIELDS;
+      
+      const displayName = displayFields[requiredField] || requiredField;
+      
+      missingColumns.push(displayName);
+    }
+  }
+  
+  return {
+    isValid: missingColumns.length === 0,
+    missingColumns: missingColumns,
+    error: missingColumns.length > 0 
+      ? `Saknar nödvändiga kolumner: ${missingColumns.join(', ')}`
+      : null
+  };
+};
+
+/**
+ * Avgör om en CSV-fil är från en annan plattform än TikTok
+ * @param {string} csvType - Detekterad CSV-typ
+ * @returns {Object|null} - Information om fel platform eller null
+ */
+export const checkWrongPlatform = (csvType) => {
+  if (csvType === CSV_TYPES.FACEBOOK) {
+    return {
+      platform: 'Facebook',
+      message: 'Detta verkar vara Facebook-statistik, inte TikTok-data. Appen stödjer endast TikTok-statistikfiler.'
+    };
+  }
+  
+  if (csvType === CSV_TYPES.INSTAGRAM) {
+    return {
+      platform: 'Instagram',
+      message: 'Detta verkar vara Instagram-statistik, inte TikTok-data. Appen stödjer endast TikTok-statistikfiler.'
+    };
+  }
+  
+  if (csvType === CSV_TYPES.UNKNOWN) {
+    return {
+      platform: 'Okänd',
+      message: 'Kunde inte identifiera denna fil som TikTok-statistik. Kontrollera att du valt rätt fil.'
+    };
+  }
+  
+  return null; // Ingen felaktig plattform detekterad
 };
 
 // ----------------------------------------
@@ -156,7 +285,7 @@ const calculateVideoFields = (row) => {
   const comments = parseFloat(row.comments || 0);
   const shares = parseFloat(row.shares || 0);
   const favorites = parseFloat(row.favorites || 0);
-  result.interactions = likes + comments + shares;
+  result.interactions = likes + comments + shares + favorites;
   
   // Beräkna engagemangsnivå: interaktioner / views * 100
   if (row.views && row.views > 0) {
@@ -197,6 +326,16 @@ export const processTikTokData = (csvContent, columnMappings, forcedType = null)
             rows: results.data.length,
             columns: Object.keys(results.data[0]).length
           });
+          
+          // Kontrollera om det är en annan plattform än TikTok
+          const wrongPlatform = checkWrongPlatform(csvType);
+          if (wrongPlatform) {
+            reject(new Error(wrongPlatform.message));
+            return;
+          }
+          
+          // Validera nödvändiga kolumner
+          const validation = validateRequiredColumns(results.meta.fields, columnMappings, csvType);
           
           // PRESTANDAOPTIMERING: Begränsa antal rader för bättre prestanda vid stor data
           // Detta gör att UI inte fryser vid stora filer
@@ -282,7 +421,9 @@ export const processTikTokData = (csvContent, columnMappings, forcedType = null)
                   isLimited,
                   processedAt: new Date(),
                   dateRange,
-                  fields: results.meta.fields
+                  fields: results.meta.fields,
+                  missingColumns: validation.missingColumns,
+                  wrongPlatform: wrongPlatform
                 }
               });
             } catch (innerError) {
@@ -311,15 +452,31 @@ export const processTikTokData = (csvContent, columnMappings, forcedType = null)
  */
 export const getDefaultColumnMappings = (csvType) => {
   if (csvType === CSV_TYPES.OVERVIEW) {
-    return Object.entries(OVERVIEW_FIELDS).reduce((acc, [internal, external]) => {
+    // Combine Swedish and English mappings for overview data
+    const swedishMappings = Object.entries(OVERVIEW_FIELDS).reduce((acc, [internal, external]) => {
       acc[external] = internal;
       return acc;
     }, {});
+    
+    const englishMappings = Object.entries(OVERVIEW_FIELDS_ENGLISH).reduce((acc, [internal, external]) => {
+      acc[external] = internal;
+      return acc;
+    }, {});
+    
+    return { ...swedishMappings, ...englishMappings };
   } else {
-    return Object.entries(VIDEO_FIELDS).reduce((acc, [internal, external]) => {
+    // Combine Swedish and English mappings for video data
+    const swedishMappings = Object.entries(VIDEO_FIELDS).reduce((acc, [internal, external]) => {
       acc[external] = internal;
       return acc;
     }, {});
+    
+    const englishMappings = Object.entries(VIDEO_FIELDS_ENGLISH).reduce((acc, [internal, external]) => {
+      acc[external] = internal;
+      return acc;
+    }, {});
+    
+    return { ...swedishMappings, ...englishMappings };
   }
 };
 
