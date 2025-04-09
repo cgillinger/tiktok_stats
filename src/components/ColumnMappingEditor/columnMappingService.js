@@ -125,7 +125,7 @@ export function getAlternativeNames(internalName, currentMappings) {
     'profile_views': ['Profilvisningar', 'Profile Views'],
     'date': ['Datum', 'Date', 'Dag'],
     'title': ['Videotitel', 'Video Title', 'Titel'],
-    'publish_time': ['Publiceringstid', 'Publish Time', 'Publish Date', 'Publishing time'],
+    'publish_time': ['Publiceringstid', 'Publish Time', 'Publish Date', 'Publishing time', 'Post time'],
     'favorites': ['Lägg till i Favoriter', 'Favorites', 'Add to Favorites', 'Add to favorites'],
     'new_followers': ['Nya följare', 'New Followers', 'New followers'],
     'lost_followers': ['Tappade följare', 'Lost Followers', 'Lost followers'],

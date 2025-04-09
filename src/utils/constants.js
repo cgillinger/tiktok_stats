@@ -155,7 +155,7 @@ export const VIDEO_FIELDS = {
 export const VIDEO_FIELDS_ENGLISH = {
   'title': 'Video title',
   'link': 'Video link',
-  'publish_time': 'Publishing time',
+  'publish_time': 'Post time',
   'views': 'Video views',
   'likes': 'Likes',
   'comments': 'Comments',
