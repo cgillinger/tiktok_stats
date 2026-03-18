@@ -1,107 +1,103 @@
 # TikTok Statistik
 
-En webbaserad applikation för att analysera och visualisera TikTok-statistik lokalt i din webbläsare. Inget data skickas till externa servrar - all bearbetning sker direkt i din webbläsare.
-
-![TikTok Statistik](./public/app-preview.png)
+En webbaserad applikation för att analysera och visualisera TikTok-statistik lokalt i din webbläsare. Inget data skickas till externa servrar — all bearbetning sker direkt i din webbläsare.
 
 ## Funktioner
 
-### Kontohantering
-- **Hantera flera TikTok-konton** - Skapa, redigera och ta bort olika TikTok-konton
-- **Gruppera statistik per konto** - Separera och filtrera data från olika TikTok-konton
-- **Enkel kontoöversikt** - Se status för uppladdad data per konto
+### Uppladdning och kontohantering
+- **Batch-upload** — Dra och släpp flera CSV-filer samtidigt
+- **Automatiskt kontoskapande** — Ange kontonamn per fil (t.ex. "P3", "Ekot") och konton skapas automatiskt
+- **Sammanslagning av data** — Om ett konto redan finns läggs ny data till med dublettkontroll på datum
+- **Flera konton** — Hantera och jämför statistik från valfritt antal TikTok-profiler
 
-### Datahantering
-- **Uppladdning av CSV-filer** - Ladda upp exporterade CSV-filer från TikTok (översiktsdata och videodata)
-- **Automatisk filtypsdetektering** - Automatisk identifiering av vilken typ av TikTok-data som laddas upp
-- **Kolumnmappningar** - Anpassa och uppdatera hur TikTok-kolumner mappas när nya format lanseras
-- **Lokal lagring** - All data sparas lokalt i webbläsaren via IndexedDB och localStorage
+### Dataformat som stöds
 
-### Visualisering och analys
-- **Översiktsvy** - Se daglig statistik för visningar, räckvidd, gilla-markeringar, kommentarer, delningar m.m.
-- **Videoanalys** - Analysera prestanda för individuella videor
-- **Engagemangsberäkning** - Automatisk beräkning av engagemangsnivåer
-- **Sorteringsmöjligheter** - Sortera och filtrera data efter olika parametrar
-- **Sökfunktion** - Sök efter specifik information i dina data
+Appen hanterar TikToks **dagliga översiktsdata** (CSV-export från TikTok Creator Studio):
 
-### Export och delning
-- **CSV-export** - Exportera filtrerad och bearbetad data till CSV-format
-- **Excel-export** - Exportera data till Excel-format för vidare analys
-- **Valbar datafält** - Välj exakt vilka fält som ska inkluderas i tabeller och vid export
+| Kolumn | Beskrivning |
+|---|---|
+| Datum | Statistikdatum |
+| Videovisningar | Totalt antal videovisningar |
+| Målgrupp som nåtts | Unik räckvidd |
+| Profilvisningar | Antal profilbesök |
+| Gilla-markeringar | Antal likes |
+| Delningar | Antal delningar |
+| Kommentarer | Antal kommentarer |
+| Nettotillväxt | Ny följartillväxt netto |
+| Nya följare | Antal nya följare |
+| Tappade följare | Antal tappade följare |
+| …med flera | Produktlänkar, webbplatsklick, leads m.m. |
+
+Kolumnnamn på både **svenska och engelska** stöds.
+
+### Vyer
+
+- **Per konto** — Aggregerad tabell med en rad per konto. Summerar videovisningar, interaktioner, följartillväxt m.m. Räckvidd och engagemangsnivå beräknas som genomsnitt.
+- **Per dag** — Daglig data för alla konton med kontofilter, sökning, sortering och paginering.
+
+### Beräknade fält
+- **Interaktioner** = likes + kommentarer + delningar
+- **Engagemangsnivå (%)** = interaktioner / räckvidd × 100
+
+### Export
+- Export till **CSV** och **Excel** från båda vyerna
 
 ## Teknisk översikt
 
-Applikationen är byggd med följande teknologier:
-
-- **React** - För komponentbaserat användargränssnitt
-- **Vite** - Som byggverktyg och utvecklingsserver
-- **Tailwind CSS** - För stilsättning och design
-- **IndexedDB** - För långvarig lokal datalagring
-- **LocalStorage** - För konfiguration och mindre datamängder
-- **PapaParse** - För robust CSV-parsning
-- **SheetJS** - För Excel-export och -hantering
+- **React** — Komponentbaserat gränssnitt
+- **Vite** — Byggverktyg och utvecklingsserver
+- **Tailwind CSS + Radix UI** — Stilsättning och tillgängliga UI-komponenter
+- **IndexedDB** — Lokal datalagring för stora datamängder
+- **localStorage** — Konfiguration och cache för mindre data
+- **PapaParse** — CSV-parsning
+- **SheetJS** — Excel-export
 
 ## Lokal utveckling
 
 ### Förutsättningar
-- Node.js (version 16+)
-- npm eller yarn
+- Node.js 16+
+- npm
 
 ### Installation
 
-1. Klona repot:
-   ```
-   git clone https://github.com/cgillinger/tiktok_stats.git
-   cd tiktok_stats
-   ```
+```bash
+git clone https://github.com/cgillinger/tiktok_stats.git
+cd tiktok_stats
+npm install
+npm run dev
+```
 
-2. Installera beroenden:
-   ```
-   npm install
-   ```
+Bygg för produktion:
 
-3. Starta utvecklingsservern:
-   ```
-   npm run dev
-   ```
-
-4. Bygg för produktion:
-   ```
-   npm run build
-   ```
+```bash
+npm run build
+```
 
 ## Använda applikationen
 
 ### Kom igång
 
-1. **Lägg till ett konto** - Börja med att skapa ett konto för den TikTok-profil du vill analysera
-2. **Ladda upp data** - Ladda upp översiktsdata (daily data export) och/eller videodata från TikTok Creator Studio
-3. **Utforska statistiken** - Använd tabellerna för att se, sortera och analysera dina data
-4. **Exportera vid behov** - Exportera data till CSV eller Excel för vidare analys
+1. **Exportera data från TikTok** — Gå till TikTok Creator Studio → Analytics → exportera daglig översiktsdata som CSV
+2. **Öppna appen** och dra CSV-filerna till uppladdningszonen (eller klicka för att välja)
+3. **Ange kontonamn** för varje fil (t.ex. "P3", "Ekot", "SVT Nyheter")
+4. **Klicka "Bearbeta alla"** — konton skapas och data laddas in
+5. **Utforska statistiken** i vyerna "Per konto" och "Per dag"
+6. **Exportera** till CSV eller Excel vid behov
 
-### Dataformat som stöds
+### Lägga till mer data
 
-- **Översiktsdata** - Daglig översikt med räckvidd, visningar, följare, etc.
-- **Videodata** - Per-video-statistik med titlar, publiceringsdatum, visningar, etc.
+Klicka på **"Lägg till data"** i huvudvyn för att ladda upp ytterligare filer. Om ett kontonamn redan finns slås datan samman (dubbletter på datum tas bort automatiskt).
 
-### Kolumnmappningar
+### Återställa data
 
-Om TikTok ändrar sina CSV-format kan du uppdatera kolumnmappningarna under inställningar. Detta gör att appen fortsätter fungera även när TikTok uppdaterar sina exportformat.
+Klicka på återställningsknappen (↻) uppe till höger för att rensa all data och börja om.
 
 ## Integritetsinformation
 
-- All data lagras uteslutande lokalt i din webbläsare
+- All data lagras uteslutande **lokalt i din webbläsare**
 - Ingen data skickas till några servrar eller tredje parter
-- Appen har ingen autentisering mot TikTok API:er och behöver inga lösenord
-
-## Bidra till projektet
-
-Bidrag till projektet är välkomna! Du kan hjälpa till genom att:
-
-1. Rapportera buggar eller problem via issues
-2. Föreslå nya funktioner
-3. Skicka pull requests med förbättringar eller buggfixar
+- Appen behöver inga TikTok-lösenord eller API-nycklar
 
 ## Licensiering
 
-Denna applikation är licensierad under MIT-licensen.
+MIT
