@@ -6,17 +6,14 @@ import { Loader2, AlertCircle, AlertTriangle, CheckCircle, RefreshCw, HardDrive 
 import { Button } from '../ui/button';
 import { cn } from '@/utils/utils';
 
-/**
- * Komponent för att visa status för lagringsutrymme
- */
 export function StorageStatus() {
-  const { 
-    storageStats, 
-    isLoading, 
-    error, 
-    fetchStorageStats, 
+  const {
+    storageStats,
+    isLoading,
+    error,
+    fetchStorageStats,
     getStorageStatus,
-    getStatusDescription 
+    getStatusDescription
   } = useStorageMonitor();
 
   if (isLoading) {
@@ -38,12 +35,7 @@ export function StorageStatus() {
         <AlertDescription>
           <div className="space-y-2">
             <p>{error}</p>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={fetchStorageStats}
-              className="mt-2"
-            >
+            <Button variant="outline" size="sm" onClick={fetchStorageStats} className="mt-2">
               <RefreshCw className="h-4 w-4 mr-1" />
               Försök igen
             </Button>
@@ -53,11 +45,9 @@ export function StorageStatus() {
     );
   }
 
-  // Hämta lagringsstatus
   const status = getStorageStatus();
   const statusDescription = getStatusDescription();
 
-  // Returnera rätt UI baserat på lagringsstatus
   return (
     <Card className={cn(
       status === 'critical' && 'border-red-500',
@@ -66,20 +56,11 @@ export function StorageStatus() {
       <CardHeader className="pb-2">
         <div className="flex justify-between items-center">
           <CardTitle className="text-lg">Lagringsstatus</CardTitle>
-          <Button 
-            variant="ghost" 
-            size="icon"
-            className="h-8 w-8" 
-            onClick={fetchStorageStats}
-            title="Uppdatera statistik"
-          >
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={fetchStorageStats}>
             <RefreshCw className="h-4 w-4" />
-            <span className="sr-only">Uppdatera</span>
           </Button>
         </div>
-        <CardDescription>
-          {statusDescription}
-        </CardDescription>
+        <CardDescription>{statusDescription}</CardDescription>
       </CardHeader>
       <CardContent>
         {status === 'critical' && (
@@ -87,17 +68,17 @@ export function StorageStatus() {
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Kritiskt lågt lagringsutrymme</AlertTitle>
             <AlertDescription>
-              Webbläsarens lagringsutrymme är nästan fullt. Du behöver ta bort data för att kunna fortsätta använda appen.
+              Webbläsarens lagringsutrymme är nästan fullt. Ta bort data för att fortsätta.
             </AlertDescription>
           </Alert>
         )}
 
         {status === 'warning' && (
-          <Alert variant="warning" className="mb-4 border-yellow-500 bg-yellow-50">
+          <Alert className="mb-4 border-yellow-500 bg-yellow-50">
             <AlertTriangle className="h-4 w-4 text-yellow-600" />
             <AlertTitle className="text-yellow-800">Varning: Lagringsutrymme börjar bli fullt</AlertTitle>
             <AlertDescription className="text-yellow-700">
-              Överväg att ta bort onödig data för att frigöra utrymme.
+              Överväg att ta bort onödig data.
             </AlertDescription>
           </Alert>
         )}
@@ -111,15 +92,14 @@ export function StorageStatus() {
 
         {storageStats && (
           <div className="space-y-4">
-            {/* localStorage användning */}
             <div>
               <div className="flex justify-between items-center mb-1 text-sm">
                 <span className="flex items-center">
-                  <HardDrive className="h-4 w-4 mr-1 text-primary" /> 
+                  <HardDrive className="h-4 w-4 mr-1 text-primary" />
                   localStorage
                 </span>
                 <span className="text-muted-foreground">
-                  {(storageStats.localStorage.used / 1024).toFixed(1)} KB 
+                  {(storageStats.localStorage.used / 1024).toFixed(1)} KB
                   {' / '}
                   {(storageStats.localStorage.limit / 1024 / 1024).toFixed(0)} MB
                 </span>
@@ -133,11 +113,10 @@ export function StorageStatus() {
                     "bg-green-600"
                   )}
                   style={{ width: `${Math.min(storageStats.localStorage.percentage, 100)}%` }}
-                ></div>
+                />
               </div>
             </div>
 
-            {/* Datastatistik */}
             <div className="border rounded-md p-3 text-sm">
               <h4 className="font-medium mb-2">Datastatistik</h4>
               <ul className="space-y-1 text-muted-foreground">
@@ -148,10 +127,6 @@ export function StorageStatus() {
                 <li className="flex justify-between">
                   <span>Översiktsdata:</span>
                   <span>{storageStats.indexedDB.overviewDataCount} dataset</span>
-                </li>
-                <li className="flex justify-between">
-                  <span>Videodata:</span>
-                  <span>{storageStats.indexedDB.videoDataCount} dataset</span>
                 </li>
               </ul>
             </div>
