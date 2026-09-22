@@ -21,6 +21,7 @@ import {
 import { MONTH_VIEW_AVAILABLE_FIELDS, ENGAGEMENT_RATE_BASIS } from '@/utils/constants';
 import { formatNumber } from '@/utils/utils';
 import { CopyableValue } from '../ui/copyable-value';
+import { ProfileIcon } from '../ui/profile-icon';
 
 // Fält som räknas som medelvärde vid summering, inte summa
 const AVG_FIELDS = ['engagement_rate'];
@@ -90,6 +91,11 @@ export function MonthView({ months = [], videos = [], accounts = [], selectedFie
   const [showMissing, setShowMissing] = useState(true);
 
   const getDisplayName = (field) => MONTH_VIEW_AVAILABLE_FIELDS[field] || field;
+
+  const getAccountHandle = (accountId) => {
+    const found = accounts.find(a => a.id === accountId);
+    return found?.handle || null;
+  };
 
   const handleSort = (key) => {
     setSortConfig(current => ({
@@ -345,7 +351,7 @@ export function MonthView({ months = [], videos = [], accounts = [], selectedFie
               <TableHeader>
                 <TableRow>
                   <TableHead
-                    className="cursor-pointer hover:bg-muted/50 whitespace-nowrap"
+                    className="cursor-pointer hover:bg-muted/50 whitespace-nowrap min-w-[180px]"
                     onClick={() => handleSort('accountName')}
                   >
                     <div className="flex items-center">Konto {getSortIcon('accountName')}</div>
@@ -414,7 +420,12 @@ export function MonthView({ months = [], videos = [], accounts = [], selectedFie
                 {/* Data rows */}
                 {paginatedRows.map((row, index) => (
                   <TableRow key={`${row.accountId}-${row.month}-${index}`}>
-                    <TableCell className="font-medium whitespace-nowrap">{row.accountName}</TableCell>
+                    <TableCell className="font-medium whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <ProfileIcon name={row.accountName} handle={getAccountHandle(row.accountId)} size="sm" />
+                        <span>{row.accountName}</span>
+                      </div>
+                    </TableCell>
                     <TableCell className="whitespace-nowrap">{row.month}</TableCell>
                     <TableCell className="whitespace-nowrap"><StatusBadge status={row.status} /></TableCell>
 

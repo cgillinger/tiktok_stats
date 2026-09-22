@@ -19,6 +19,7 @@ import {
 import { VIDEO_VIEW_AVAILABLE_FIELDS, ENGAGEMENT_RATE_BASIS } from '@/utils/constants';
 import { formatNumber, truncateText } from '@/utils/utils';
 import { CopyableValue } from '../ui/copyable-value';
+import { ProfileIcon } from '../ui/profile-icon';
 
 const AVG_FIELDS = ['engagement_rate'];
 
@@ -60,6 +61,12 @@ export function VideoView({ videos = [], accounts = [], selectedFields }) {
     if (!accountId) return 'Okänt konto';
     const found = accounts.find(a => a.id === accountId);
     return found ? found.name : 'Okänt konto';
+  };
+
+  const getAccountHandle = (accountId) => {
+    if (!accountId) return null;
+    const found = accounts.find(a => a.id === accountId);
+    return found?.handle || null;
   };
 
   const handleSort = (key) => {
@@ -285,7 +292,7 @@ export function VideoView({ videos = [], accounts = [], selectedFields }) {
               <TableHeader>
                 <TableRow>
                   <TableHead
-                    className="cursor-pointer hover:bg-muted/50 whitespace-nowrap"
+                    className="cursor-pointer hover:bg-muted/50 whitespace-nowrap min-w-[180px]"
                     onClick={() => handleSort('accountId')}
                   >
                     <div className="flex items-center">Konto {getSortIcon('accountId')}</div>
@@ -355,7 +362,10 @@ export function VideoView({ videos = [], accounts = [], selectedFields }) {
                 {paginatedData.map((video, index) => (
                   <TableRow key={`${video.video_id || video.filename}-${index}`}>
                     <TableCell className="whitespace-nowrap">
-                      {getAccountName(video.accountId)}
+                      <div className="flex items-center gap-2">
+                        <ProfileIcon name={getAccountName(video.accountId)} handle={getAccountHandle(video.accountId)} size="sm" />
+                        <span>{getAccountName(video.accountId)}</span>
+                      </div>
                     </TableCell>
 
                     <TableCell>
@@ -364,11 +374,12 @@ export function VideoView({ videos = [], accounts = [], selectedFields }) {
                           href={video.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          title={video.title}
-                          className="inline-flex items-center gap-1 text-primary hover:underline"
+                          title="Öppna videon på TikTok"
+                          aria-label="Öppna videon på TikTok"
+                          className="inline-flex items-center gap-1.5 text-primary hover:underline"
                         >
-                          {truncateText(video.title || '(Utan titel)', 80)}
-                          <ExternalLink className="h-3 w-3 shrink-0" />
+                          <span>{truncateText(video.title || '(Utan titel)', 80)}</span>
+                          <ExternalLink className="h-3.5 w-3.5 shrink-0" />
                         </a>
                       ) : (
                         <span title={video.title}>{truncateText(video.title || '(Utan titel)', 80)}</span>

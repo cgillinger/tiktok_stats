@@ -12,7 +12,8 @@ import {
   Trash2,
   Play,
   Ban,
-  Inbox
+  Inbox,
+  ExternalLink
 } from 'lucide-react';
 import { saveAccountData, getAccounts, saveAccount } from '@/utils/webStorageService';
 import { processTikTokData, UnsupportedCsvError } from '@/utils/webDataProcessor';
@@ -391,30 +392,54 @@ export function BatchUploader({ onSuccess, onCancel }) {
                 {entry.status === FILE_STATUS.UNSUPPORTED ? (
                   <p className="text-sm text-red-700">{entry.error}</p>
                 ) : (
-                  <div className="flex items-center gap-2">
-                    <Label
-                      htmlFor={`account-${entry.id}`}
-                      className="text-xs text-muted-foreground whitespace-nowrap"
-                    >
-                      Kontonamn:
-                    </Label>
-                    <Input
-                      id={`account-${entry.id}`}
-                      value={entry.accountName}
-                      onChange={(e) => handleAccountNameChange(entry.id, e.target.value)}
-                      placeholder="Ex: P3 Nyheter"
-                      className="h-7 text-sm"
-                      disabled={isProcessing || entry.status === FILE_STATUS.DONE}
-                    />
+                  <div className="space-y-1.5">
+                    {entry.handle && (
+                      <a
+                        href={`https://www.tiktok.com/@${entry.handle}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Öppna kontot på TikTok"
+                        aria-label="Öppna kontot på TikTok"
+                        className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                      >
+                        @{entry.handle}
+                        <ExternalLink className="h-3 w-3 shrink-0" />
+                      </a>
+                    )}
+
+                    <div className="flex items-center gap-2">
+                      <Label
+                        htmlFor={`account-${entry.id}`}
+                        className="text-xs text-muted-foreground whitespace-nowrap"
+                      >
+                        Visningsnamn:
+                      </Label>
+                      <Input
+                        id={`account-${entry.id}`}
+                        value={entry.accountName}
+                        onChange={(e) => handleAccountNameChange(entry.id, e.target.value)}
+                        placeholder="Ex: P3 Nyheter"
+                        className="h-7 text-sm"
+                        disabled={isProcessing || entry.status === FILE_STATUS.DONE}
+                      />
+                    </div>
                   </div>
                 )}
 
-                {entry.handle && entry.status !== FILE_STATUS.DONE && (
-                  <p className="text-xs text-muted-foreground">
-                    Förslag utifrån @{entry.handle} - ändra fritt. Data hamnar på samma
-                    konto som tidigare uppladdningar av @{entry.handle}, även om du
-                    skriver ett annat namn.
-                  </p>
+                {(entry.status === FILE_STATUS.READY ||
+                  entry.status === FILE_STATUS.PROCESSING ||
+                  entry.status === FILE_STATUS.ERROR) && (
+                  entry.handle ? (
+                    <p className="text-xs text-muted-foreground">
+                      Visningsnamnet går att ändra fritt - data hamnar ändå på samma
+                      konto som tidigare uppladdningar av @{entry.handle}.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-amber-700">
+                      Kontots @-namn kunde inte läsas ur filen - ange visningsnamnet
+                      manuellt.
+                    </p>
+                  )
                 )}
 
                 <div className="flex items-center gap-4 flex-wrap">

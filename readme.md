@@ -8,6 +8,7 @@ En webbaserad applikation för att analysera och visualisera TikTok-statistik lo
 
 ### Uppladdning och kontohantering
 - **Batch-upload** — Dra och släpp flera CSV-filer samtidigt
+- **Visningsnamn per konto** — Fältet går alltid att skriva över, så nya konton kan namnges fritt vid uppladdning.
 - **Automatiskt kontonamn** — Kontonamnet föreslås utifrån @-namnet i filens URL-kolumn och normaliseras till läsbar form (`p3dingata` → "P3 Din Gata", `creepypoddenip3` → "Creepypodden i P3"). Förslaget går alltid att skriva över.
 - **Ingen risk för dubbletter** — Uppladdningar matchas mot @-namnet, inte mot det skrivna kontonamnet. Att döpa om ett konto skapar alltså ingen andra post.
 - **Sammanslagning av data** — Om ett konto redan finns läggs ny data till med dublettkontroll på datum
@@ -49,11 +50,27 @@ Appen skiljer på tre tillstånd för varje konto och månad, tydligt märkta i 
 2. **Tom månad** — CSV uppladdad, men inga videor publicerades (siffrorna visas som 0, med badgen "Inga videor publicerade").
 3. **CSV saknas** — ingen fil uppladdad för konto och månad (siffrorna visas som "-", med badgen "Ingen CSV uppladdad").
 
-De tre vyerna:
+De fyra vyerna:
 
 - **Per konto** — Aggregerad tabell med en rad per konto: summerade visningar, interaktioner m.m., antal videor och antal uppladdade månader. Engagemangsnivå beräknas som genomsnitt. Konton utan publicerade videor visas ändå, med en tydlig badge.
 - **Per månad** — En rad per konto och månad, över hela månadsuniversumet av uppladdad data. Här syns tom månad och saknad CSV tydligast, med separat ikon och färg för respektive tillstånd samt en förklarande legend.
 - **Per video** — En rad per publicerad video, med klickbar länk till videon, sökning på titel/konto, kontofilter, sortering och paginering.
+- **Topplista** — Redaktionellt läge för "Topp 10 visningar" och liknande. Se nedan.
+
+Varje konto märks med en färgad kanalikon (P3 grön, P4 magenta, Radiosporten mörkgrön osv.) — samma färgsättning som Meta Analytics använder, så att ett konto går att känna igen på färgen mellan apparna. Konton och videor har utlänkar direkt till TikTok.
+
+### Topplisteläge
+
+Tänkt för underlag till presentationer:
+
+- **Nivå** — topplista per konto eller per video.
+- **Mätvärde** — visningar, gilla, kommentarer, delningar, interaktioner eller engagemangsnivå.
+- **Period** — valfritt månadsintervall, inte bara en enskild månad eller allt. Har du aug, sep och okt uppladdat går det att välja t.ex. aug–sep. Intervallet växer automatiskt när nya månader laddas upp.
+- **Antal** — topp 3, 5, 10 eller 20.
+
+Topp tre märks med krona i guld, silver och brons. Listan går att spara som **PNG** (renderad i 2x upplösning, gjord för att klistras in i en presentation) eller **Excel**.
+
+Om någon konto-månad i det valda intervallet saknar uppladdad CSV säger vyn till, eftersom summorna då kan vara underskattade utan att det syns.
 
 ### Beräknade fält
 
@@ -69,7 +86,8 @@ De tre vyerna:
 Definitionen visas också i appen: under fältväljaren och som fotnot under varje tabell.
 
 ### Export
-- Export till **CSV** och **Excel** från alla tre vyerna
+- Export till **CSV** och **Excel** från alla tabellvyer
+- Export till **PNG** och **Excel** från topplisteläget
 
 ## Teknisk översikt
 

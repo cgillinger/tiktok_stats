@@ -15,11 +15,14 @@ import {
   LayoutDashboard,
   Trash2,
   Upload,
-  Info
+  Info,
+  Crown
 } from 'lucide-react';
 import { AccountView } from '../AccountView/AccountView';
 import { MonthView } from '../MonthView/MonthView';
 import { VideoView } from '../VideoView/VideoView';
+import { LeaderboardView } from '../LeaderboardView/LeaderboardView';
+import { cn } from '@/utils/utils';
 import { StorageStatus } from '../StorageStatus/StorageStatus';
 import { BatchUploader } from '../BatchUploader/BatchUploader';
 import {
@@ -396,10 +399,14 @@ export function MainView() {
           <TabsTrigger value="accounts">Per konto</TabsTrigger>
           <TabsTrigger value="months">Per månad</TabsTrigger>
           <TabsTrigger value="videos">Per video</TabsTrigger>
+          <TabsTrigger value="leaderboard" className="gap-1.5">
+            <Crown className="h-3.5 w-3.5" />
+            Topplista
+          </TabsTrigger>
         </TabsList>
 
-        {/* Field selector card */}
-        <Card className="mb-4">
+        {/* Fältväljare - topplistan har egna kontroller och behöver den inte */}
+        <Card className={cn("mb-4", activeTab === 'leaderboard' && "hidden")}>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Välj värden att visa</CardTitle>
           </CardHeader>
@@ -492,6 +499,14 @@ export function MainView() {
             videos={allVideos}
             accounts={accounts}
             selectedFields={selectedVideoFields}
+          />
+        </TabsContent>
+
+        <TabsContent value="leaderboard">
+          <LeaderboardView
+            videos={allVideos}
+            months={allMonths}
+            accounts={accounts}
           />
         </TabsContent>
       </Tabs>
