@@ -13,12 +13,14 @@ import {
   Play,
   Ban,
   Inbox,
-  ExternalLink
+  ExternalLink,
+  Download
 } from 'lucide-react';
 import { saveAccountData, getAccounts, saveAccount } from '@/utils/webStorageService';
 import { processTikTokData, UnsupportedCsvError } from '@/utils/webDataProcessor';
 import { cn } from '@/utils/utils';
 import { normalizeAccountName } from '@/utils/accountNames';
+import { fetchAccountDisplayName } from '@/utils/tiktokEmbed';
 
 const FILE_STATUS = {
   ANALYZING: 'analyzing',
@@ -49,6 +51,8 @@ export function BatchUploader({ onSuccess, onCancel }) {
   const [totalProgress, setTotalProgress] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [globalError, setGlobalError] = useState(null);
+  const [isFetchingNames, setIsFetchingNames] = useState(false);
+  const [nameFetchProgress, setNameFetchProgress] = useState({ done: 0, total: 0 });
 
   const fileInputRef = useRef(null);
 
@@ -113,7 +117,11 @@ export function BatchUploader({ onSuccess, onCancel }) {
         videoCount: 0,
         months: [],
         isEmptyImport: false,
-        warnings: []
+        warnings: [],
+        // Läget för uppslagning av visningsnamn mot TikTok (frivillig funktion)
+        nameFetchStatus: 'idle',
+        nameFetchError: null,
+        nameFromTikTok: false
       });
     }
 
@@ -147,12 +155,67 @@ export function BatchUploader({ onSuccess, onCancel }) {
   };
 
   const handleAccountNameChange = (id, name) => {
-    setFileEntries(prev => prev.map(e => e.id === id ? { ...e, accountName: name } : e));
+    setFileEntries(prev => prev.map(e => e.id === id
+      // Ändrar användaren namnet för hand räknas det inte längre som hämtat från TikTok
+      ? { ...e, accountName: name, nameFromTikTok: false, nameFetchStatus: 'idle', nameFetchError: null }
+      : e
+    ));
   };
+
+  // En tom månad saknar videor och går alltså inte att slå upp mot TikTok
+  const hasVideoUrl = (entry) => Boolean(entry.parsed?.videos?.some(v => v?.url));
+
+  const handleFetchName = useCallback(async (entry) => {
+    const videoUrl = entry.parsed?.videos?.find(v => v?.url)?.url;
+    if (!videoUrl) return;
+
+    setFileEntries(prev => prev.map(e =>
+      e.id === entry.id ? { ...e, nameFetchStatus: 'loading', nameFetchError: null } : e
+    ));
+
+    try {
+      const name = await fetchAccountDisplayName(videoUrl, true);
+      if (name) {
+        setFileEntries(prev => prev.map(e =>
+          e.id === entry.id
+            ? { ...e, accountName: name, nameFetchStatus: 'idle', nameFetchError: null, nameFromTikTok: true }
+            : e
+        ));
+      } else {
+        setFileEntries(prev => prev.map(e =>
+          e.id === entry.id
+            ? { ...e, nameFetchStatus: 'error', nameFetchError: 'Kunde inte hämta namnet från TikTok' }
+            : e
+        ));
+      }
+    } catch (err) {
+      setFileEntries(prev => prev.map(e =>
+        e.id === entry.id
+          ? { ...e, nameFetchStatus: 'error', nameFetchError: 'Kunde inte hämta namnet från TikTok' }
+          : e
+      ));
+    }
+  }, []);
 
   const readyEntries = fileEntries.filter(e => e.status === FILE_STATUS.READY);
   const unsupportedEntries = fileEntries.filter(e => e.status === FILE_STATUS.UNSUPPORTED);
   const legacyCount = unsupportedEntries.filter(e => e.isLegacy).length;
+  const entriesWithVideos = fileEntries.filter(hasVideoUrl);
+
+  const handleFetchAllNames = async () => {
+    const targets = fileEntries.filter(hasVideoUrl);
+    if (targets.length === 0) return;
+
+    setIsFetchingNames(true);
+    setNameFetchProgress({ done: 0, total: targets.length });
+
+    for (let i = 0; i < targets.length; i++) {
+      await handleFetchName(targets[i]);
+      setNameFetchProgress({ done: i + 1, total: targets.length });
+    }
+
+    setIsFetchingNames(false);
+  };
 
   const canProcess = readyEntries.length > 0 &&
     readyEntries.every(e => e.accountName.trim() !== '') &&
@@ -407,7 +470,7 @@ export function BatchUploader({ onSuccess, onCancel }) {
                       </a>
                     )}
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <Label
                         htmlFor={`account-${entry.id}`}
                         className="text-xs text-muted-foreground whitespace-nowrap"
@@ -422,7 +485,37 @@ export function BatchUploader({ onSuccess, onCancel }) {
                         className="h-7 text-sm"
                         disabled={isProcessing || entry.status === FILE_STATUS.DONE}
                       />
+                      {hasVideoUrl(entry) && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs text-muted-foreground"
+                          onClick={() => handleFetchName(entry)}
+                          disabled={
+                            isProcessing ||
+                            isFetchingNames ||
+                            entry.status === FILE_STATUS.DONE ||
+                            entry.nameFetchStatus === 'loading'
+                          }
+                          title="Slår upp kontots namn hos TikTok. Då skickas videons länk och din IP-adress dit. Din statistik lämnar aldrig webbläsaren."
+                        >
+                          {entry.nameFetchStatus === 'loading' ? (
+                            <><Loader2 className="mr-1 h-3 w-3 animate-spin" />Hämtar...</>
+                          ) : (
+                            <><Download className="mr-1 h-3 w-3" />Hämta namn från TikTok</>
+                          )}
+                        </Button>
+                      )}
                     </div>
+                    {entry.nameFromTikTok && entry.nameFetchStatus !== 'error' && (
+                      <p className="text-xs text-muted-foreground">Namnet ovan är hämtat från TikTok.</p>
+                    )}
+                    {entry.nameFetchStatus === 'error' && (
+                      <p className="text-xs text-red-700 flex items-center gap-1">
+                        <AlertCircle className="h-3 w-3" />{entry.nameFetchError}
+                      </p>
+                    )}
                   </div>
                 )}
 
@@ -479,24 +572,53 @@ export function BatchUploader({ onSuccess, onCancel }) {
       )}
 
       {/* Action buttons */}
-      <div className="flex justify-between items-center pt-2 gap-2">
-        {onCancel && (
-          <Button variant="outline" onClick={onCancel} disabled={isProcessing}>
-            Avbryt
-          </Button>
+      <div className="flex flex-col gap-2 pt-2">
+        {entriesWithVideos.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            Att hämta namn från TikTok slår upp kontot hos TikTok - videons länk och din
+            IP-adress skickas då dit. Din statistik lämnar aldrig webbläsaren, och
+            ingenting hämtas förrän du klickar.
+          </p>
         )}
 
-        <Button
-          onClick={handleProcessAll}
-          disabled={!canProcess}
-          className={cn(!onCancel && "w-full")}
-        >
-          {isProcessing ? (
-            <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Bearbetar...</>
-          ) : (
-            <><Play className="mr-2 h-4 w-4" />Bearbeta alla ({readyEntries.length} filer)</>
+        <div className="flex justify-between items-center gap-2 flex-wrap">
+          {onCancel && (
+            <Button variant="outline" onClick={onCancel} disabled={isProcessing}>
+              Avbryt
+            </Button>
           )}
-        </Button>
+
+          <div className="flex items-center gap-2 flex-wrap ml-auto justify-end">
+            {entriesWithVideos.length > 0 && (
+              <Button
+                variant="outline"
+                onClick={handleFetchAllNames}
+                disabled={isProcessing || isFetchingNames}
+              >
+                {isFetchingNames ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Hämtar {nameFetchProgress.done}/{nameFetchProgress.total}
+                  </>
+                ) : (
+                  <><Download className="mr-2 h-4 w-4" />Hämta namn från TikTok för alla</>
+                )}
+              </Button>
+            )}
+
+            <Button
+              onClick={handleProcessAll}
+              disabled={!canProcess}
+              className={cn(!onCancel && entriesWithVideos.length === 0 && "w-full")}
+            >
+              {isProcessing ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Bearbetar...</>
+              ) : (
+                <><Play className="mr-2 h-4 w-4" />Bearbeta alla ({readyEntries.length} filer)</>
+              )}
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   );

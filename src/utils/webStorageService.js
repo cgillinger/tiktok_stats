@@ -56,6 +56,12 @@ const openDatabase = () => {
         videoStore.createIndex('accountId', 'accountId', { unique: false });
       }
 
+      // v3 lade till cachen för miniatyrer. Den innehåller bara hämtade bilder
+      // och kan alltid byggas om, till skillnad från statistiken.
+      if (!db.objectStoreNames.contains(STORAGE_KEYS.STORE_THUMBNAILS)) {
+        db.createObjectStore(STORAGE_KEYS.STORE_THUMBNAILS, { keyPath: 'videoId' });
+      }
+
       if (!db.objectStoreNames.contains(STORAGE_KEYS.STORE_MONTH_DATA)) {
         const monthStore = db.createObjectStore(STORAGE_KEYS.STORE_MONTH_DATA, { keyPath: 'id', autoIncrement: true });
         monthStore.createIndex('accountId', 'accountId', { unique: false });
@@ -457,6 +463,59 @@ export const getAccountData = async (accountId) =>
  */
 export const getAccountMonths = async (accountId) =>
   readStoreData(STORAGE_KEYS.STORE_MONTH_DATA, STORAGE_KEYS.MONTH_DATA_PREFIX, accountId);
+
+// ----------------------------------------
+// Miniatyrcache
+// ----------------------------------------
+
+/**
+ * Miniatyrer cachas som bytes, inte som URL:er - TikToks bild-URL:er är
+ * signerade och slutar fungera efter ungefär ett dygn.
+ */
+export const getCachedThumbnail = async (videoId) => {
+  try {
+    if (!videoId) return null;
+    const entry = await getById(STORAGE_KEYS.STORE_THUMBNAILS, videoId);
+    return entry?.blob || null;
+  } catch (error) {
+    console.warn('Kunde inte läsa miniatyr ur cachen:', error);
+    return null;
+  }
+};
+
+export const cacheThumbnail = async (videoId, blob) => {
+  try {
+    if (!videoId || !blob) return false;
+    await saveToIndexedDB(STORAGE_KEYS.STORE_THUMBNAILS, {
+      videoId,
+      blob,
+      cachedAt: Date.now(),
+    });
+    return true;
+  } catch (error) {
+    console.warn('Kunde inte spara miniatyr i cachen:', error);
+    return false;
+  }
+};
+
+/**
+ * Töms när användaren stänger av miniatyrerna, så att inget hämtat
+ * material blir kvar mot användarens vilja.
+ */
+export const clearThumbnailCache = async () => {
+  try {
+    const db = await getDatabase();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORAGE_KEYS.STORE_THUMBNAILS], 'readwrite');
+      const request = transaction.objectStore(STORAGE_KEYS.STORE_THUMBNAILS).clear();
+      request.onsuccess = () => resolve(true);
+      request.onerror = () => reject(request.error);
+    });
+  } catch (error) {
+    console.warn('Kunde inte tömma miniatyrcachen:', error);
+    return false;
+  }
+};
 
 // ----------------------------------------
 // Filhantering
