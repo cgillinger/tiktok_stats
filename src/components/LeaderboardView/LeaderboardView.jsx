@@ -585,13 +585,24 @@ export function LeaderboardView({ videos = [], months = [], accounts = [] }) {
                       )}
                     </div>
 
+                    {/* TikTok levererar omslagen i både 9:16 och 3:4. Bilden beskärs
+                        aldrig - i stället fyller en suddad kopia ut ramen, så att
+                        alla rader får samma bildyta. */}
                     {showThumbnails && level === 'videos' && thumbnails.get(row.key) && (
-                      <img
-                        src={thumbnails.get(row.key)}
-                        alt=""
-                        className="w-12 h-12 rounded-md object-cover shrink-0 bg-muted"
-                        loading="lazy"
-                      />
+                      <div className="relative w-24 h-32 shrink-0 rounded-lg overflow-hidden bg-muted">
+                        <img
+                          src={thumbnails.get(row.key)}
+                          alt=""
+                          aria-hidden="true"
+                          className="absolute inset-0 w-full h-full object-cover scale-125 blur-md brightness-90"
+                        />
+                        <img
+                          src={thumbnails.get(row.key)}
+                          alt=""
+                          className="relative h-full w-full object-contain"
+                          loading="lazy"
+                        />
+                      </div>
                     )}
 
                     <ProfileIcon
