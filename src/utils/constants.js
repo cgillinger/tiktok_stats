@@ -20,12 +20,16 @@ export const STORAGE_KEYS = {
   // Sätts när v1-data (gamla formatet) rensats vid DB-uppgradering
   LEGACY_DATA_CLEARED: 'tiktok_stats_legacy_data_cleared',
 
+  // Användarens val att hämta data från TikTok (av som standard)
+  FETCH_THUMBNAILS: 'tiktok_stats_fetch_thumbnails',
+
   // IndexedDB configurations
   DB_NAME: 'TikTokStatisticsDB',
-  DB_VERSION: 2,
+  DB_VERSION: 3,
   STORE_ACCOUNTS: 'accounts',
   STORE_VIDEO_DATA: 'videoData',
   STORE_MONTH_DATA: 'monthData',
+  STORE_THUMBNAILS: 'thumbnails',
 
   // v1-store, raderas vid uppgradering till v2
   LEGACY_STORE_OVERVIEW_DATA: 'overviewData',

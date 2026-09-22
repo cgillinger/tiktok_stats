@@ -25,7 +25,7 @@ function App() {
             <div className="text-sm text-muted-foreground hidden md:block">
               <div className="flex items-center space-x-1">
                 <span className="w-2 h-2 rounded-full bg-green-500"></span>
-                <span>Data bearbetas direkt i din webbläsare - inget skickas till någon server</span>
+                <span>Statistiken bearbetas lokalt i din webbläsare</span>
               </div>
             </div>
           </div>
@@ -52,7 +52,12 @@ function App() {
             </div>
             
             <div className="text-sm text-muted-foreground">
-              <p>All data behandlas lokalt i din webbläsare</p>
+              <p>
+                All statistik bearbetas och lagras enbart lokalt i din webbläsare och
+                lämnar den aldrig. På din uttryckliga begäran kan appen hämta
+                visningsnamn och miniatyrbilder från TikTok - annars sker ingen
+                nätverkstrafik.
+              </p>
               <p className="text-xs">Denna app har ingen koppling till TikTok eller ByteDance Ltd.</p>
             </div>
           </div>

@@ -203,3 +203,38 @@ export function simplifyFilename(filename) {
   
   return simplified;
 }
+
+/**
+ * Delar en inläggstext i en rubrikrad och en fortsättning.
+ *
+ * Topplistan visar rubrikraden stort och resten i mindre, ofet text, så att
+ * man ser vad klippet handlar om utan att raden svämmar över. Brytningen
+ * sker vid ordgräns, och helst vid ett meningsslut om det finns ett tidigt.
+ *
+ * @param {string} text - Hela inläggstexten
+ * @param {number} [headLength] - Ungefärlig längd på rubrikraden
+ * @returns {{head: string, tail: string}}
+ */
+export function splitPostText(text, headLength = 75) {
+  const value = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!value) return { head: '', tail: '' };
+  if (value.length <= headLength) return { head: value, tail: '' };
+
+  // Meningsslut inom rimligt avstånd ger den snyggaste brytningen
+  const sentenceBreak = value.slice(0, headLength + 25).search(/[.!?]\s/);
+  if (sentenceBreak > headLength * 0.4) {
+    return {
+      head: value.slice(0, sentenceBreak + 1).trim(),
+      tail: value.slice(sentenceBreak + 1).trim(),
+    };
+  }
+
+  // Annars vid närmaste ordgräns
+  let cut = value.lastIndexOf(' ', headLength);
+  if (cut < headLength * 0.5) cut = headLength;
+
+  return {
+    head: value.slice(0, cut).trim(),
+    tail: value.slice(cut).trim(),
+  };
+}

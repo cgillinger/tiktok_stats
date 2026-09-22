@@ -67,10 +67,13 @@ Tänkt för underlag till presentationer:
 - **Mätvärde** — visningar, gilla, kommentarer, delningar, interaktioner eller engagemangsnivå.
 - **Period** — valfritt månadsintervall, inte bara en enskild månad eller allt. Har du aug, sep och okt uppladdat går det att välja t.ex. aug–sep. Intervallet växer automatiskt när nya månader laddas upp.
 - **Antal** — topp 3, 5, 10 eller 20.
+- **Konton** — alla, eller ett urval. För redaktörer som bara ansvarar för några konton.
 
 Topp tre märks med krona i guld, silver och brons. Listan går att spara som **PNG** (renderad i 2x upplösning, gjord för att klistras in i en presentation) eller **Excel**.
 
 Om någon konto-månad i det valda intervallet saknar uppladdad CSV säger vyn till, eftersom summorna då kan vara underskattade utan att det syns.
+
+**Miniatyrbilder** kan slås på för videotopplistan. De hämtas då från TikTok och ritas även in i PNG-exporten. Se avsnittet om integritet nedan.
 
 ### Beräknade fält
 
@@ -141,9 +144,20 @@ Klicka på återställningsknappen (↻) uppe till höger för att rensa all dat
 
 ## Integritetsinformation
 
-- All data lagras uteslutande **lokalt i din webbläsare**
-- Ingen data skickas till några servrar eller tredje parter
+- All statistik bearbetas och lagras uteslutande **lokalt i din webbläsare** och lämnar den aldrig
 - Appen behöver inga TikTok-lösenord eller API-nycklar
+- **Som standard sker ingen nätverkstrafik alls**
+
+Två funktioner är undantag, båda avstängda från början och båda kräver ett aktivt klick:
+
+| Funktion | Var | Vad som skickas |
+|---|---|---|
+| Hämta visningsnamn | Uppladdningsvyn | Videons publika länk och din IP-adress, till TikTok |
+| Miniatyrbilder | Topplisteläget, per video | Klippens publika länkar och din IP-adress, till TikTok |
+
+Båda använder TikToks publika oEmbed-API. **Ingen statistik och inga uppladdade filer skickas någonsin.** Miniatyrer cachas lokalt och raderas när reglaget stängs av.
+
+Hämtningslagret har en spärr som gör att inget anrop kan göras utan att anroparen skickar med ett uttryckligt samtycke - det ska inte gå att råka hämta data genom en glömd flagga.
 
 ## Licensiering
 

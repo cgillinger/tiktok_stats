@@ -21,7 +21,7 @@ const FONT_STACK = 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neu
 
 const THEME = {
   scale: 2,                 // ritas i 2x för skarp text i presentationer
-  width: 1120,
+  width: 1280,
   padding: 56,
   headerGap: 26,
   rowHeight: 76,
@@ -63,6 +63,41 @@ const fitText = (ctx, text, maxWidth) => {
     }
   }
   return value.slice(0, low).trimEnd() + '…';
+};
+
+/**
+ * Bryter text till rader som ryms inom maxWidth, högst maxLines.
+ * Sista raden får ellips om texten inte får plats.
+ */
+const wrapText = (ctx, text, maxWidth, maxLines) => {
+  const words = String(text || '').split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [];
+
+  const lines = [];
+  let current = '';
+
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (ctx.measureText(candidate).width <= maxWidth) {
+      current = candidate;
+      continue;
+    }
+
+    if (current) lines.push(current);
+    current = word;
+
+    if (lines.length === maxLines) break;
+  }
+
+  if (lines.length < maxLines && current) lines.push(current);
+
+  // Fick allt inte plats - markera med ellips på sista raden
+  const joined = lines.join(' ');
+  if (joined.length < String(text).replace(/\s+/g, ' ').trim().length && lines.length > 0) {
+    lines[lines.length - 1] = fitText(ctx, lines[lines.length - 1] + ' …', maxWidth);
+  }
+
+  return lines;
 };
 
 const roundedRect = (ctx, x, y, w, h, r) => {
@@ -110,20 +145,51 @@ const drawProfileIcon = (ctx, x, y, size, { label, color }) => {
 };
 
 /**
+ * Ritar en miniatyrbild beskuren till en kvadrat med rundade hörn.
+ * TikTok-bilder är stående (9:16), så vi beskär mitten på höjden.
+ */
+const drawThumbnail = (ctx, image, x, y, size) => {
+  if (!image || !image.width || !image.height) return;
+
+  ctx.save();
+  roundedRect(ctx, x, y, size, size, 6);
+  ctx.clip();
+
+  const scale = Math.max(size / image.width, size / image.height);
+  const drawWidth = image.width * scale;
+  const drawHeight = image.height * scale;
+
+  ctx.drawImage(
+    image,
+    x + (size - drawWidth) / 2,
+    y + (size - drawHeight) / 2,
+    drawWidth,
+    drawHeight
+  );
+  ctx.restore();
+};
+
+/**
  * Renderar en topplista till en canvas.
  *
  * @param {Object} options
  * @param {string} options.title - t.ex. "Topp 10 - Visningar"
  * @param {string} options.subtitle - t.ex. "Per konto · 2026-08"
- * @param {Array} options.rows - [{ label, sublabel, value, icon }] där icon är
- *   { label, color } från resolveChannel, eller utelämnad
+ * @param {Array} options.rows - [{ label, sublabel, value, icon, thumbnail }] där
+ *   icon är { label, color } från resolveChannel, thumbnail ett laddat
+ *   HTMLImageElement och detail fortsättningen på inläggstexten - alla valfria
  * @param {string} options.metricLabel - t.ex. "Visningar"
  * @param {string} [options.footer]
  * @returns {HTMLCanvasElement}
  */
 export function renderLeaderboardCanvas({ title, subtitle, rows, metricLabel, footer }) {
   const items = Array.isArray(rows) ? rows : [];
-  const { scale, width, padding, rowHeight, rowGap, headerGap } = THEME;
+  const { scale, width, padding, rowGap, headerGap } = THEME;
+
+  // Miniatyrer och fortsättningstext kräver högre rader
+  const hasThumbnails = items.some(row => row.thumbnail);
+  const hasDetail = items.some(row => row.detail);
+  const rowHeight = hasDetail ? 124 : (hasThumbnails ? 96 : THEME.rowHeight);
 
   const headerHeight = 132;
   const footerHeight = footer ? 52 : 24;
@@ -210,6 +276,12 @@ export function renderLeaderboardCanvas({ title, subtitle, rows, metricLabel, fo
     const iconSize = 30;
     let labelX = rankX + 42;
 
+    if (row.thumbnail) {
+      const thumbSize = rowHeight - 24;
+      drawThumbnail(ctx, row.thumbnail, labelX, y + 12, thumbSize);
+      labelX += thumbSize + 16;
+    }
+
     if (row.icon) {
       drawProfileIcon(ctx, labelX, y + rowHeight / 2 - iconSize / 2, iconSize, row.icon);
       labelX += iconSize + 14;
@@ -221,12 +293,49 @@ export function renderLeaderboardCanvas({ title, subtitle, rows, metricLabel, fo
     ctx.textBaseline = 'middle';
     ctx.fillStyle = THEME.text;
 
-    if (row.sublabel) {
-      ctx.font = `600 21px ${FONT_STACK}`;
-      ctx.fillText(fitText(ctx, row.label, labelMaxWidth), labelX, y + rowHeight / 2 - 12);
-      ctx.font = `400 16px ${FONT_STACK}`;
-      ctx.fillStyle = THEME.textMuted;
-      ctx.fillText(fitText(ctx, row.sublabel, labelMaxWidth), labelX, y + rowHeight / 2 + 13);
+    if (row.sublabel || row.detail) {
+      // Rubrikrad stort, fortsättningen mindre och ofet, konto sist
+      const blockLines = [];
+
+      ctx.font = `600 20px ${FONT_STACK}`;
+      blockLines.push({
+        text: fitText(ctx, row.label, labelMaxWidth),
+        font: `600 20px ${FONT_STACK}`,
+        color: THEME.text,
+        height: 26,
+      });
+
+      if (row.detail) {
+        ctx.font = `400 17px ${FONT_STACK}`;
+        wrapText(ctx, row.detail, labelMaxWidth, 2).forEach(line => {
+          blockLines.push({
+            text: line,
+            font: `400 17px ${FONT_STACK}`,
+            color: THEME.textMuted,
+            height: 23,
+          });
+        });
+      }
+
+      if (row.sublabel) {
+        ctx.font = `400 15px ${FONT_STACK}`;
+        blockLines.push({
+          text: fitText(ctx, row.sublabel, labelMaxWidth),
+          font: `400 15px ${FONT_STACK}`,
+          color: THEME.textMuted,
+          height: 21,
+        });
+      }
+
+      const blockHeight = blockLines.reduce((sum, line) => sum + line.height, 0);
+      let cursorY = y + rowHeight / 2 - blockHeight / 2;
+
+      blockLines.forEach(line => {
+        ctx.font = line.font;
+        ctx.fillStyle = line.color;
+        ctx.fillText(line.text, labelX, cursorY + line.height / 2);
+        cursorY += line.height;
+      });
     } else {
       ctx.font = `600 22px ${FONT_STACK}`;
       ctx.fillText(fitText(ctx, row.label, labelMaxWidth), labelX, y + rowHeight / 2 - 8);

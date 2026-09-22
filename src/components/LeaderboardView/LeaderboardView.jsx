@@ -1,15 +1,19 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Label } from '../ui/label';
-import { Crown, FileImage, FileSpreadsheet, ExternalLink, Info } from 'lucide-react';
+import { Crown, FileImage, FileSpreadsheet, ExternalLink, Info, Loader2, ShieldAlert, Users } from 'lucide-react';
 import { Alert, AlertDescription } from '../ui/alert';
-import { METRIC_FIELDS } from '@/utils/constants';
-import { formatNumber, truncateText } from '@/utils/utils';
+import { METRIC_FIELDS, STORAGE_KEYS } from '@/utils/constants';
+import { formatNumber, splitPostText } from '@/utils/utils';
 import { downloadLeaderboardPng, MEDAL_COLORS } from '@/utils/leaderboardImage';
 import { ProfileIcon } from '../ui/profile-icon';
 import { resolveChannel } from '@/utils/channelColors';
+import { Checkbox } from '../ui/checkbox';
+import { Switch } from '../ui/switch';
+import { fetchThumbnails, fetchThumbnail, blobToImage } from '@/utils/tiktokEmbed';
+import { clearThumbnailCache } from '@/utils/webStorageService';
 
 /**
  * Topplisteläge
@@ -33,6 +37,22 @@ export function LeaderboardView({ videos = [], months = [], accounts = [] }) {
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState(null);
 
+  // Tomt urval = alla konton. Redaktörer som ansvarar för några få konton
+  // kan begränsa listan till dem.
+  const [selectedAccountIds, setSelectedAccountIds] = useState([]);
+  const [showAccountPicker, setShowAccountPicker] = useState(false);
+
+  // Miniatyrer hämtas från TikTok och är därför avstängda som standard.
+  const [showThumbnails, setShowThumbnails] = useState(() => {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.FETCH_THUMBNAILS) === '1';
+    } catch (e) {
+      return false;
+    }
+  });
+  const [thumbnails, setThumbnails] = useState(new Map());
+  const [thumbnailProgress, setThumbnailProgress] = useState(null);
+
   // Stigande ordning - månaderna jämförs som strängar, vilket fungerar för YYYY-MM
   const availableMonths = useMemo(() => {
     const unique = new Set();
@@ -40,6 +60,24 @@ export function LeaderboardView({ videos = [], months = [], accounts = [] }) {
     videos.forEach(v => { if (v.month) unique.add(v.month); });
     return Array.from(unique).sort();
   }, [months, videos]);
+
+  // Bara konton som faktiskt har uppladdad data är meningsfulla att filtrera på
+  const selectableAccounts = useMemo(
+    () => accounts.filter(a => a.hasData),
+    [accounts]
+  );
+
+  const toggleAccount = (accountId) => {
+    setSelectedAccountIds(prev =>
+      prev.includes(accountId)
+        ? prev.filter(id => id !== accountId)
+        : [...prev, accountId]
+    );
+  };
+
+  const accountFilterLabel = selectedAccountIds.length === 0
+    ? `Alla konton (${selectableAccounts.length})`
+    : `${selectedAccountIds.length} av ${selectableAccounts.length} konton`;
 
   const firstMonth = availableMonths[0] || null;
   const lastMonth = availableMonths[availableMonths.length - 1] || null;
@@ -72,15 +110,23 @@ export function LeaderboardView({ videos = [], months = [], accounts = [] }) {
       if (rangeEnd && item.month > rangeEnd) return false;
       return true;
     };
-    const relevantVideos = videos.filter(inPeriod);
+
+    // Tomt urval betyder alla konton
+    const inSelection = (item) =>
+      selectedAccountIds.length === 0 || selectedAccountIds.includes(item.accountId);
+
+    const relevantVideos = videos.filter(item => inPeriod(item) && inSelection(item));
 
     if (level === 'videos') {
       return relevantVideos
         .map(video => {
           const account = getAccount(video.accountId);
+          const { head, tail } = splitPostText(video.title);
           return {
             key: video.video_id || video.url,
-            label: video.title || '(utan titel)',
+            label: head || '(utan titel)',
+            detail: tail || null,
+            fullText: video.title || '',
             sublabel: getAccountName(video.accountId),
             iconName: account?.name || getAccountName(video.accountId),
             iconHandle: account?.handle || null,
@@ -113,6 +159,8 @@ export function LeaderboardView({ videos = [], months = [], accounts = [] }) {
         return {
           key: accountId,
           label: getAccountName(accountId),
+          detail: null,
+          fullText: getAccountName(accountId),
           sublabel: null,
           iconName: getAccountName(accountId),
           iconHandle: handle,
@@ -122,12 +170,69 @@ export function LeaderboardView({ videos = [], months = [], accounts = [] }) {
         };
       })
       .sort((a, b) => b.value - a.value);
-  }, [videos, level, metric, rangeStart, rangeEnd, accounts, isAverage]);
+  }, [videos, level, metric, rangeStart, rangeEnd, accounts, isAverage, selectedAccountIds]);
 
   const topRows = useMemo(
     () => rows.slice(0, parseInt(limit, 10) || 10),
     [rows, limit]
   );
+
+  /**
+   * Hämtar miniatyrer för de klipp som visas. Körs bara när användaren slagit
+   * på reglaget, och bara på videonivå - kontonivån har inga klipp att visa.
+   */
+  useEffect(() => {
+    if (!showThumbnails || level !== 'videos') {
+      setThumbnailProgress(null);
+      return;
+    }
+
+    const wanted = topRows
+      .filter(row => row.url)
+      .map(row => ({ video_id: row.key, url: row.url }));
+
+    const missing = wanted.filter(v => !thumbnails.has(v.video_id));
+    if (missing.length === 0) {
+      setThumbnailProgress(null);
+      return;
+    }
+
+    let cancelled = false;
+    setThumbnailProgress({ done: 0, total: missing.length });
+
+    fetchThumbnails(missing, true, (done, total) => {
+      if (!cancelled) setThumbnailProgress({ done, total });
+    })
+      .then(fetched => {
+        if (cancelled) return;
+        setThumbnails(prev => new Map([...prev, ...fetched]));
+        setThumbnailProgress(null);
+      })
+      .catch(error => {
+        if (cancelled) return;
+        console.warn('Miniatyrer kunde inte hämtas:', error);
+        setThumbnailProgress(null);
+      });
+
+    return () => { cancelled = true; };
+    // thumbnails avsiktligt utanför: den uppdateras av effekten själv
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showThumbnails, level, topRows]);
+
+  const handleThumbnailToggle = async (enabled) => {
+    setShowThumbnails(enabled);
+    try {
+      localStorage.setItem(STORAGE_KEYS.FETCH_THUMBNAILS, enabled ? '1' : '0');
+    } catch (e) { /* ignorera */ }
+
+    // Stängs funktionen av ska inget hämtat material ligga kvar
+    if (!enabled) {
+      thumbnails.forEach(url => URL.revokeObjectURL(url));
+      setThumbnails(new Map());
+      setThumbnailProgress(null);
+      await clearThumbnailCache();
+    }
+  };
 
   const metricLabel = METRIC_FIELDS[metric] || metric;
 
@@ -150,6 +255,23 @@ export function LeaderboardView({ videos = [], months = [], accounts = [] }) {
     setIsExporting(true);
     setExportError(null);
 
+    // Miniatyrerna måste vara färdigladdade innan canvasen ritas
+    let images = new Map();
+    if (showThumbnails && level === 'videos') {
+      const loaded = await Promise.all(
+        topRows.map(async (row) => {
+          try {
+            const blob = await fetchThumbnail({ video_id: row.key, url: row.url }, true);
+            const image = await blobToImage(blob);
+            return [row.key, image];
+          } catch (error) {
+            return [row.key, null];
+          }
+        })
+      );
+      images = new Map(loaded.filter(([, image]) => image));
+    }
+
     const result = await downloadLeaderboardPng({
       title,
       subtitle,
@@ -157,7 +279,9 @@ export function LeaderboardView({ videos = [], months = [], accounts = [] }) {
       rows: topRows.map(row => ({
         label: row.label,
         sublabel: row.sublabel,
+        detail: row.detail,
         icon: resolveChannel({ name: row.iconName, handle: row.iconHandle }),
+        thumbnail: images.get(row.key) || null,
         value: isAverage ? Number(row.value).toFixed(2) : row.value,
       })),
       footer: `TikTok-statistik · Underlag: ${periodLabel} · Skapad ${new Date().toLocaleDateString('sv-SE')}`,
@@ -211,7 +335,9 @@ export function LeaderboardView({ videos = [], months = [], accounts = [] }) {
    */
   const coverage = useMemo(() => {
     const uploaded = new Set(months.map(m => `${m.accountId}|${m.month}`));
-    const relevantAccounts = accounts.filter(a => a.hasData);
+    const relevantAccounts = accounts.filter(a =>
+      a.hasData && (selectedAccountIds.length === 0 || selectedAccountIds.includes(a.id))
+    );
 
     let missing = 0;
     relevantAccounts.forEach(account => {
@@ -224,7 +350,7 @@ export function LeaderboardView({ videos = [], months = [], accounts = [] }) {
       missing,
       total: relevantAccounts.length * monthsInRange.length,
     };
-  }, [months, accounts, monthsInRange]);
+  }, [months, accounts, monthsInRange, selectedAccountIds]);
 
   return (
     <div className="space-y-4">
@@ -294,6 +420,90 @@ export function LeaderboardView({ videos = [], months = [], accounts = [] }) {
             </div>
           </div>
 
+          {/* Kontourval */}
+          <div className="mt-4 pt-4 border-t">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8"
+                onClick={() => setShowAccountPicker(v => !v)}
+              >
+                <Users className="h-4 w-4 mr-2" />
+                {accountFilterLabel}
+              </Button>
+
+              {selectedAccountIds.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={() => setSelectedAccountIds([])}
+                >
+                  Visa alla konton
+                </Button>
+              )}
+            </div>
+
+            {showAccountPicker && (
+              <div className="mt-3 rounded-lg border p-3">
+                <p className="text-xs text-muted-foreground mb-2">
+                  Välj vilka konton som ska ingå i topplistan. Inget val = alla konton.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {selectableAccounts.map(account => (
+                    <div key={account.id} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`lb-account-${account.id}`}
+                        checked={selectedAccountIds.includes(account.id)}
+                        onCheckedChange={() => toggleAccount(account.id)}
+                      />
+                      <Label
+                        htmlFor={`lb-account-${account.id}`}
+                        className="text-sm flex items-center gap-2 cursor-pointer"
+                      >
+                        <ProfileIcon name={account.name} handle={account.handle} size="sm" />
+                        {account.name}
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Miniatyrer - hämtas från TikTok, därför avstängt som standard */}
+          {level === 'videos' && (
+            <div className="mt-4 pt-4 border-t">
+              <div className="flex items-start gap-3">
+                <Switch
+                  id="show-thumbnails"
+                  checked={showThumbnails}
+                  onCheckedChange={handleThumbnailToggle}
+                />
+                <div className="flex-1">
+                  <Label htmlFor="show-thumbnails" className="text-sm cursor-pointer">
+                    Visa miniatyrbilder
+                  </Label>
+                  <p className="text-xs text-muted-foreground mt-1 flex items-start gap-1.5">
+                    <ShieldAlert className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                    <span>
+                      Bilderna hämtas från TikTok. Då skickas klippens länkar och din
+                      IP-adress dit. Din statistik lämnar aldrig webbläsaren. Stänger du
+                      av reglaget raderas de hämtade bilderna.
+                    </span>
+                  </p>
+                  {thumbnailProgress && (
+                    <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1.5">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Hämtar miniatyrer {thumbnailProgress.done}/{thumbnailProgress.total}...
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center gap-2 mt-3">
             <span className="text-xs text-muted-foreground">Period: {periodLabel}</span>
             {!isFullRange && availableMonths.length > 1 && (
@@ -357,7 +567,7 @@ export function LeaderboardView({ videos = [], months = [], accounts = [] }) {
                 return (
                   <li
                     key={row.key}
-                    className="flex items-center gap-4 rounded-xl border p-3 transition-colors"
+                    className="flex items-start gap-4 rounded-xl border p-3 transition-colors"
                     style={isTop3 ? { borderColor: color } : undefined}
                   >
                     <div className="w-12 shrink-0 flex flex-col items-center justify-center">
@@ -375,6 +585,15 @@ export function LeaderboardView({ videos = [], months = [], accounts = [] }) {
                       )}
                     </div>
 
+                    {showThumbnails && level === 'videos' && thumbnails.get(row.key) && (
+                      <img
+                        src={thumbnails.get(row.key)}
+                        alt=""
+                        className="w-12 h-12 rounded-md object-cover shrink-0 bg-muted"
+                        loading="lazy"
+                      />
+                    )}
+
                     <ProfileIcon
                       name={row.iconName}
                       handle={row.iconHandle}
@@ -383,8 +602,8 @@ export function LeaderboardView({ videos = [], months = [], accounts = [] }) {
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <span className="font-semibold truncate" title={row.label}>
-                          {truncateText(row.label, 90)}
+                        <span className="font-semibold truncate" title={row.fullText}>
+                          {row.label}
                         </span>
                         {row.url && (
                           <a
@@ -400,8 +619,17 @@ export function LeaderboardView({ videos = [], months = [], accounts = [] }) {
                         )}
                       </div>
 
+                      {row.detail && (
+                        <p
+                          className="text-sm font-normal text-muted-foreground line-clamp-2 mt-0.5"
+                          title={row.fullText}
+                        >
+                          {row.detail}
+                        </p>
+                      )}
+
                       {row.sublabel ? (
-                        <p className="text-xs text-muted-foreground truncate">{row.sublabel}</p>
+                        <p className="text-xs text-muted-foreground truncate mt-1">{row.sublabel}</p>
                       ) : (
                         <div className="h-1.5 rounded-full bg-muted mt-1.5 overflow-hidden">
                           <div
