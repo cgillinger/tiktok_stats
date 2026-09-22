@@ -8,7 +8,8 @@ En webbaserad applikation för att analysera och visualisera TikTok-statistik lo
 
 ### Uppladdning och kontohantering
 - **Batch-upload** — Dra och släpp flera CSV-filer samtidigt
-- **Automatiskt kontoskapande** — Ange kontonamn per fil (t.ex. "P3", "Ekot") och konton skapas automatiskt
+- **Automatiskt kontonamn** — Kontonamnet föreslås utifrån @-namnet i filens URL-kolumn och normaliseras till läsbar form (`p3dingata` → "P3 Din Gata", `creepypoddenip3` → "Creepypodden i P3"). Förslaget går alltid att skriva över.
+- **Ingen risk för dubbletter** — Uppladdningar matchas mot @-namnet, inte mot det skrivna kontonamnet. Att döpa om ett konto skapar alltså ingen andra post.
 - **Sammanslagning av data** — Om ett konto redan finns läggs ny data till med dublettkontroll på datum
 - **Flera konton** — Hantera och jämför statistik från valfritt antal TikTok-profiler
 

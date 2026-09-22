@@ -17,6 +17,7 @@ import {
 import { saveAccountData, getAccounts, saveAccount } from '@/utils/webStorageService';
 import { processTikTokData, UnsupportedCsvError } from '@/utils/webDataProcessor';
 import { cn } from '@/utils/utils';
+import { normalizeAccountName } from '@/utils/accountNames';
 
 const FILE_STATUS = {
   ANALYZING: 'analyzing',
@@ -71,7 +72,8 @@ export function BatchUploader({ onSuccess, onCancel }) {
         status: FILE_STATUS.READY,
         content,
         parsed,
-        accountName: parsed.handle || '',
+        handle: parsed.handle || null,
+        accountName: normalizeAccountName(parsed.handle) || '',
         videoCount: parsed.meta.videoCount,
         months: parsed.meta.months,
         isEmptyImport: parsed.meta.isEmptyImport,
@@ -100,6 +102,7 @@ export function BatchUploader({ onSuccess, onCancel }) {
         id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
         file,
         accountName: '',
+        handle: null,
         status: FILE_STATUS.ANALYZING,
         error: null,
         formatLabel: null,
@@ -180,12 +183,27 @@ export function BatchUploader({ onSuccess, onCancel }) {
 
         const accounts = await getAccounts();
         const accountName = entry.accountName.trim();
-        let account = accounts.find(a => a.name.toLowerCase() === accountName.toLowerCase());
+        const handle = entry.handle;
+
+        // Matcha på handle före namn. Samma TikTok-konto ska hamna på samma
+        // post även om visningsnamnet skrivits om sedan förra uppladdningen -
+        // annars hade "p3dingata" och "P3 Din Gata" blivit två konton.
+        let account =
+          (handle && accounts.find(a => a.handle && a.handle === handle)) ||
+          accounts.find(a => a.name.toLowerCase() === accountName.toLowerCase()) ||
+          (handle && accounts.find(a => a.name.toLowerCase() === handle.toLowerCase())) ||
+          null;
 
         const mergeData = Boolean(account);
-        if (!account) {
+        if (account) {
+          // Namnet i fältet vinner, så att ett konto går att döpa om
+          if (account.name !== accountName || account.handle !== handle) {
+            account = await saveAccount({ ...account, name: accountName, handle: handle || account.handle || null });
+          }
+        } else {
           account = await saveAccount({
             name: accountName,
+            handle: handle || null,
             createdAt: Date.now(),
             hasData: false
           });
@@ -384,11 +402,19 @@ export function BatchUploader({ onSuccess, onCancel }) {
                       id={`account-${entry.id}`}
                       value={entry.accountName}
                       onChange={(e) => handleAccountNameChange(entry.id, e.target.value)}
-                      placeholder="Ex: p3nyheter"
+                      placeholder="Ex: P3 Nyheter"
                       className="h-7 text-sm"
                       disabled={isProcessing || entry.status === FILE_STATUS.DONE}
                     />
                   </div>
+                )}
+
+                {entry.handle && entry.status !== FILE_STATUS.DONE && (
+                  <p className="text-xs text-muted-foreground">
+                    Förslag utifrån @{entry.handle} - ändra fritt. Data hamnar på samma
+                    konto som tidigare uppladdningar av @{entry.handle}, även om du
+                    skriver ett annat namn.
+                  </p>
                 )}
 
                 <div className="flex items-center gap-4 flex-wrap">
