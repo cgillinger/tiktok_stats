@@ -5,8 +5,15 @@
  * - localStorage för konfiguration och små datamängder
  * - IndexedDB för större datauppsättningar
  * - Support för flera TikTok-konton
+ *
+ * Per konto lagras två dataset:
+ *  - videoData: en rad per video (kanonisk data, dedupliceras på video_id)
+ *  - monthData: en rad per uppladdad månad (dedupliceras på month)
+ *
+ * monthData är det som skiljer "CSV uppladdad men inga videor publicerade"
+ * från "ingen CSV uppladdad" — utan den försvinner en tom månad spårlöst.
  */
-import { STORAGE_KEYS } from './constants';
+import { STORAGE_KEYS } from './constants.js';
 
 // Keep a reference to the database instance to prevent re-opening the connection
 let dbInstance = null;
@@ -26,14 +33,32 @@ const openDatabase = () => {
 
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
+      const oldVersion = event.oldVersion || 0;
+
+      // v1 lagrade daglig översiktsdata från det gamla CSV-formatet. Den datan
+      // går inte att tolka om, så den rensas och användaren informeras.
+      if (oldVersion > 0 && oldVersion < 2) {
+        if (db.objectStoreNames.contains(STORAGE_KEYS.LEGACY_STORE_OVERVIEW_DATA)) {
+          db.deleteObjectStore(STORAGE_KEYS.LEGACY_STORE_OVERVIEW_DATA);
+        }
+        if (db.objectStoreNames.contains(STORAGE_KEYS.STORE_ACCOUNTS)) {
+          db.deleteObjectStore(STORAGE_KEYS.STORE_ACCOUNTS);
+        }
+        clearLegacyLocalStorage();
+      }
 
       if (!db.objectStoreNames.contains(STORAGE_KEYS.STORE_ACCOUNTS)) {
         db.createObjectStore(STORAGE_KEYS.STORE_ACCOUNTS, { keyPath: 'id' });
       }
 
-      if (!db.objectStoreNames.contains(STORAGE_KEYS.STORE_OVERVIEW_DATA)) {
-        const overviewStore = db.createObjectStore(STORAGE_KEYS.STORE_OVERVIEW_DATA, { keyPath: 'id', autoIncrement: true });
-        overviewStore.createIndex('accountId', 'accountId', { unique: false });
+      if (!db.objectStoreNames.contains(STORAGE_KEYS.STORE_VIDEO_DATA)) {
+        const videoStore = db.createObjectStore(STORAGE_KEYS.STORE_VIDEO_DATA, { keyPath: 'id', autoIncrement: true });
+        videoStore.createIndex('accountId', 'accountId', { unique: false });
+      }
+
+      if (!db.objectStoreNames.contains(STORAGE_KEYS.STORE_MONTH_DATA)) {
+        const monthStore = db.createObjectStore(STORAGE_KEYS.STORE_MONTH_DATA, { keyPath: 'id', autoIncrement: true });
+        monthStore.createIndex('accountId', 'accountId', { unique: false });
       }
     };
 
@@ -114,14 +139,16 @@ const deleteById = async (storeName, id) => {
 
 const deleteAccountData = async (accountId) => {
   try {
-    const overviewData = await getByIndex(STORAGE_KEYS.STORE_OVERVIEW_DATA, 'accountId', accountId);
-
-    for (const item of overviewData) {
-      await deleteById(STORAGE_KEYS.STORE_OVERVIEW_DATA, item.id);
+    for (const storeName of [STORAGE_KEYS.STORE_VIDEO_DATA, STORAGE_KEYS.STORE_MONTH_DATA]) {
+      const items = await getByIndex(storeName, 'accountId', accountId);
+      for (const item of items) {
+        await deleteById(storeName, item.id);
+      }
     }
 
     try {
-      localStorage.removeItem(`${STORAGE_KEYS.OVERVIEW_DATA_PREFIX}${accountId}`);
+      localStorage.removeItem(`${STORAGE_KEYS.VIDEO_DATA_PREFIX}${accountId}`);
+      localStorage.removeItem(`${STORAGE_KEYS.MONTH_DATA_PREFIX}${accountId}`);
     } catch (e) {
       console.warn('Kunde inte ta bort från localStorage:', e);
     }
@@ -129,6 +156,39 @@ const deleteAccountData = async (accountId) => {
     return true;
   } catch (error) {
     console.error('Fel vid borttagning av kontodata:', error);
+    return false;
+  }
+};
+
+/**
+ * Rensar localStorage-nycklar från v1 (gamla CSV-formatet) och flaggar att
+ * det skett, så att gränssnittet kan förklara varför datan är borta.
+ */
+function clearLegacyLocalStorage() {
+  try {
+    const toRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.startsWith('tiktok_stats_overview_data_') || key === STORAGE_KEYS.ACCOUNTS)) {
+        toRemove.push(key);
+      }
+    }
+    toRemove.forEach(key => localStorage.removeItem(key));
+    localStorage.setItem(STORAGE_KEYS.LEGACY_DATA_CLEARED, '1');
+  } catch (e) {
+    console.warn('Kunde inte rensa gammal localStorage-data:', e);
+  }
+}
+
+/**
+ * True om data i det gamla formatet rensades vid senaste uppstart.
+ */
+export const consumeLegacyDataClearedFlag = () => {
+  try {
+    const wasCleared = localStorage.getItem(STORAGE_KEYS.LEGACY_DATA_CLEARED) === '1';
+    if (wasCleared) localStorage.removeItem(STORAGE_KEYS.LEGACY_DATA_CLEARED);
+    return wasCleared;
+  } catch (e) {
     return false;
   }
 };
@@ -243,92 +303,92 @@ export const getAccount = async (accountId) => {
 // ----------------------------------------
 
 /**
- * Sparar CSV-data för ett specifikt konto
+ * Sparar data för ett konto.
+ *
+ * Videorader dedupliceras på video_id och månadsrader på month — nyaste
+ * uppladdningen vinner. Det gör att flera månadsfiler för samma konto kan
+ * laddas upp efter varandra utan att skriva över varandra.
+ *
  * @param {string} accountId - Konto-ID
- * @param {Array} data - Data att spara
- * @param {Object} [options] - Options: { merge: bool } - om true, slå ihop med befintlig data (deduplicera på datum)
+ * @param {Object} payload - { videos: Array, months: Array }
+ * @param {Object} [options] - { merge: bool }
  * @returns {Promise<boolean>}
  */
-export const saveAccountData = async (accountId, data, options = {}) => {
+export const saveAccountData = async (accountId, payload, options = {}) => {
   try {
-    if (!accountId || !data) {
+    if (!accountId || !payload) {
       throw new Error('accountId och data krävs');
     }
 
-    if (!Array.isArray(data)) {
-      throw new Error('Data måste vara en array');
-    }
+    const videos = Array.isArray(payload.videos) ? payload.videos : [];
+    const months = Array.isArray(payload.months) ? payload.months : [];
 
-    console.log(`Sparar data för konto ${accountId} (${data.length} rader)`);
-
-    let dataToSave = data;
+    let videosToSave = videos;
+    let monthsToSave = months;
 
     if (options.merge) {
-      // Hämta befintlig data och slå ihop
-      const existing = await getAccountData(accountId);
-      if (existing.length > 0) {
-        // Deduplicera på datum - ny data vinner
-        const existingByDate = {};
-        existing.forEach(item => {
-          if (item.date) existingByDate[item.date] = item;
+      const existingVideos = await getAccountData(accountId);
+      const existingMonths = await getAccountMonths(accountId);
+
+      if (existingVideos.length > 0) {
+        // En ny fil är facit för de månader den täcker: befintliga videor i
+        // samma månad rensas först, annars ligger borttagna videor kvar när
+        // en månad laddas upp på nytt.
+        const replacedMonths = new Set(months.map(m => m.month).filter(Boolean));
+
+        const byId = {};
+        existingVideos
+          .filter(item => !replacedMonths.has(item.month))
+          .forEach(item => {
+            const key = item.video_id || item.url;
+            if (key) byId[key] = item;
+          });
+        videos.forEach(item => {
+          const key = item.video_id || item.url;
+          if (key) byId[key] = item;
         });
-        data.forEach(item => {
-          if (item.date) existingByDate[item.date] = item;
+        videosToSave = Object.values(byId);
+      }
+
+      if (existingMonths.length > 0) {
+        const byMonth = {};
+        existingMonths.forEach(item => {
+          if (item.month) byMonth[item.month] = item;
         });
-        dataToSave = Object.values(existingByDate);
-        console.log(`Sammanslagning: ${existing.length} befintliga + ${data.length} nya = ${dataToSave.length} unika rader`);
+        months.forEach(item => {
+          if (item.month) byMonth[item.month] = item;
+        });
+        monthsToSave = Object.values(byMonth);
       }
     }
 
-    const processedData = dataToSave.map(item => {
-      const processed = { ...item, accountId };
+    monthsToSave = [...monthsToSave].sort((a, b) =>
+      String(a.month).localeCompare(String(b.month)));
 
-      if (processed.date) {
-        try {
-          const date = new Date(processed.date);
-          if (!isNaN(date.getTime())) {
-            processed.date = date.toISOString();
-          }
-        } catch (e) {
-          console.warn('Failed to format date:', processed.date);
-        }
-      }
+    const stampedVideos = videosToSave.map(item => ({ ...item, accountId }));
+    const stampedMonths = monthsToSave.map(item => ({ ...item, accountId }));
 
-      return processed;
-    });
+    console.log(
+      `Sparar data för konto ${accountId}: ` +
+      `${stampedVideos.length} videor, ${stampedMonths.length} månader`
+    );
 
-    const dataWithMeta = {
-      accountId,
-      timestamp: Date.now(),
-      data: processedData
-    };
-
-    // For small datasets, also save in localStorage
-    const dataSize = JSON.stringify(data).length;
-    if (dataSize < 1000000) {
-      saveToLocalStorage(`${STORAGE_KEYS.OVERVIEW_DATA_PREFIX}${accountId}`, dataWithMeta);
-    }
-
-    // Always save in IndexedDB
-    const existingItems = await getByIndex(STORAGE_KEYS.STORE_OVERVIEW_DATA, 'accountId', accountId);
-    for (const item of existingItems) {
-      await deleteById(STORAGE_KEYS.STORE_OVERVIEW_DATA, item.id);
-    }
-
-    await saveToIndexedDB(STORAGE_KEYS.STORE_OVERVIEW_DATA, dataWithMeta);
+    await replaceStoreData(STORAGE_KEYS.STORE_VIDEO_DATA, STORAGE_KEYS.VIDEO_DATA_PREFIX, accountId, stampedVideos);
+    await replaceStoreData(STORAGE_KEYS.STORE_MONTH_DATA, STORAGE_KEYS.MONTH_DATA_PREFIX, accountId, stampedMonths);
 
     // Update account status
     const account = await getAccount(accountId);
     if (account) {
       await saveAccount({
         ...account,
-        hasData: true,
+        hasData: stampedMonths.length > 0,
         lastUpdate: Date.now(),
-        rowCount: processedData.length
+        videoCount: stampedVideos.length,
+        monthCount: stampedMonths.length,
+        months: stampedMonths.map(m => m.month),
       });
     }
 
-    console.log(`Data sparad (${processedData.length} rader)`);
     return true;
   } catch (error) {
     console.error(`Fel vid sparande av data för konto ${accountId}:`, error);
@@ -336,54 +396,67 @@ export const saveAccountData = async (accountId, data, options = {}) => {
   }
 };
 
-/**
- * Hämtar CSV-data för ett specifikt konto
- * @param {string} accountId - Konto-ID
- * @returns {Promise<Array>}
- */
-export const getAccountData = async (accountId) => {
+const replaceStoreData = async (storeName, localStoragePrefix, accountId, data) => {
+  const dataWithMeta = { accountId, timestamp: Date.now(), data };
+
+  const dataSize = JSON.stringify(data).length;
+  if (dataSize < 1000000) {
+    saveToLocalStorage(`${localStoragePrefix}${accountId}`, dataWithMeta);
+  } else {
+    try {
+      localStorage.removeItem(`${localStoragePrefix}${accountId}`);
+    } catch (e) { /* ignorera */ }
+  }
+
+  const existingItems = await getByIndex(storeName, 'accountId', accountId);
+  for (const item of existingItems) {
+    await deleteById(storeName, item.id);
+  }
+
+  await saveToIndexedDB(storeName, dataWithMeta);
+};
+
+const readStoreData = async (storeName, localStoragePrefix, accountId) => {
   try {
-    if (!accountId) {
-      throw new Error('accountId krävs');
-    }
+    if (!accountId) throw new Error('accountId krävs');
 
-    console.log(`Hämtar data för konto ${accountId}`);
-
-    // Try IndexedDB first
-    const indexedDBData = await getByIndex(STORAGE_KEYS.STORE_OVERVIEW_DATA, 'accountId', accountId);
+    const indexedDBData = await getByIndex(storeName, 'accountId', accountId);
 
     if (indexedDBData && indexedDBData.length > 0) {
-      const sortedData = indexedDBData.sort((a, b) => b.timestamp - a.timestamp);
-
-      if (sortedData[0].data && Array.isArray(sortedData[0].data)) {
-        console.log(`Hittade ${sortedData[0].data.length} rader i IndexedDB`);
-
-        return sortedData[0].data.map(item => ({
-          ...item,
-          accountId: accountId
-        }));
+      const sorted = indexedDBData.sort((a, b) => b.timestamp - a.timestamp);
+      if (Array.isArray(sorted[0].data)) {
+        return sorted[0].data.map(item => ({ ...item, accountId }));
       }
     }
 
-    // Fallback to localStorage
-    const localData = getFromLocalStorage(`${STORAGE_KEYS.OVERVIEW_DATA_PREFIX}${accountId}`, null);
-
-    if (localData && localData.data && Array.isArray(localData.data)) {
-      console.log(`Hittade ${localData.data.length} rader i localStorage`);
-
-      return localData.data.map(item => ({
-        ...item,
-        accountId: accountId
-      }));
+    const localData = getFromLocalStorage(`${localStoragePrefix}${accountId}`, null);
+    if (localData && Array.isArray(localData.data)) {
+      return localData.data.map(item => ({ ...item, accountId }));
     }
 
-    console.log(`Ingen data hittades för konto ${accountId}`);
     return [];
   } catch (error) {
-    console.error(`Fel vid hämtning av data för konto ${accountId}:`, error);
+    console.error(`Fel vid hämtning från ${storeName} för konto ${accountId}:`, error);
     return [];
   }
 };
+
+/**
+ * Hämtar videoraderna för ett konto.
+ * @param {string} accountId
+ * @returns {Promise<Array>}
+ */
+export const getAccountData = async (accountId) =>
+  readStoreData(STORAGE_KEYS.STORE_VIDEO_DATA, STORAGE_KEYS.VIDEO_DATA_PREFIX, accountId);
+
+/**
+ * Hämtar månadsraderna för ett konto - dvs. vilka månader det finns en
+ * uppladdad CSV för, inklusive månader utan publicerade videor.
+ * @param {string} accountId
+ * @returns {Promise<Array>}
+ */
+export const getAccountMonths = async (accountId) =>
+  readStoreData(STORAGE_KEYS.STORE_MONTH_DATA, STORAGE_KEYS.MONTH_DATA_PREFIX, accountId);
 
 // ----------------------------------------
 // Filhantering
@@ -477,20 +550,24 @@ export const getStorageStats = async () => {
 
     let indexedDBStats = {
       accountsCount: 0,
-      overviewDataCount: 0,
+      videoDataCount: 0,
+      monthDataCount: 0,
       estimatedSize: 0
     };
 
     const accounts = await getAllFromIndexedDB(STORAGE_KEYS.STORE_ACCOUNTS);
     indexedDBStats.accountsCount = accounts.length;
 
-    const overviewData = await getAllFromIndexedDB(STORAGE_KEYS.STORE_OVERVIEW_DATA);
-    indexedDBStats.overviewDataCount = overviewData.length;
+    const videoData = await getAllFromIndexedDB(STORAGE_KEYS.STORE_VIDEO_DATA);
+    const monthData = await getAllFromIndexedDB(STORAGE_KEYS.STORE_MONTH_DATA);
 
-    const accountsSize = JSON.stringify(accounts).length;
-    const overviewSize = overviewData.reduce((total, item) => total + JSON.stringify(item).length, 0);
+    indexedDBStats.videoDataCount = videoData.reduce(
+      (total, item) => total + (Array.isArray(item.data) ? item.data.length : 0), 0);
+    indexedDBStats.monthDataCount = monthData.reduce(
+      (total, item) => total + (Array.isArray(item.data) ? item.data.length : 0), 0);
 
-    indexedDBStats.estimatedSize = accountsSize + overviewSize;
+    const sizeOf = (items) => items.reduce((total, item) => total + JSON.stringify(item).length, 0);
+    indexedDBStats.estimatedSize = JSON.stringify(accounts).length + sizeOf(videoData) + sizeOf(monthData);
 
     return {
       localStorage: {
@@ -509,7 +586,7 @@ export const getStorageStats = async () => {
     return {
       error: error.message,
       localStorage: { used: 0, limit: 5 * 1024 * 1024, percentage: 0 },
-      indexedDB: { accountsCount: 0, overviewDataCount: 0, estimatedSize: 0 },
+      indexedDB: { accountsCount: 0, videoDataCount: 0, monthDataCount: 0, estimatedSize: 0 },
       total: { used: 0, percentage: 0 }
     };
   }

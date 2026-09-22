@@ -1,5 +1,4 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
@@ -9,33 +8,41 @@ import {
   Loader2,
   CheckCircle2,
   AlertCircle,
-  Calendar,
+  CalendarRange,
   Trash2,
-  Play
+  Play,
+  Ban,
+  Inbox
 } from 'lucide-react';
 import { saveAccountData, getAccounts, saveAccount } from '@/utils/webStorageService';
-import { processTikTokData } from '@/utils/webDataProcessor';
-import { cn, formatDate } from '@/utils/utils';
-import Papa from 'papaparse';
+import { processTikTokData, UnsupportedCsvError } from '@/utils/webDataProcessor';
+import { cn } from '@/utils/utils';
 
 const FILE_STATUS = {
-  WAITING: 'waiting',
   ANALYZING: 'analyzing',
   READY: 'ready',
+  UNSUPPORTED: 'unsupported',
   PROCESSING: 'processing',
   DONE: 'done',
   ERROR: 'error'
 };
 
 /**
- * Komponent för batch-upload av TikTok CSV-filer
- * Varje fil kopplas till ett kontonamn (manuellt ifyllt av användaren)
+ * Batch-upload av CSV-filer från tiktok-scrape.
+ *
+ * Varje fil är ett konto och en månad. Kontonamnet förifylls från @-handlet i
+ * URL-kolumnen och går att ändra.
+ *
+ * Tre utfall visas åtskilda, eftersom de kräver helt olika saker av användaren:
+ *  - filen har videodata            -> vanlig import
+ *  - filen är giltig men tom        -> importeras ändå, månaden märks som tom
+ *  - filen är i det gamla formatet  -> kan inte importeras, tydligt besked
  *
  * @param {Function} props.onSuccess - Callback när uppladdning lyckats
  * @param {Function} props.onCancel - Callback för avbryt
  */
 export function BatchUploader({ onSuccess, onCancel }) {
-  const [fileEntries, setFileEntries] = useState([]); // { id, file, accountName, dateRange, status, error, rowCount }
+  const [fileEntries, setFileEntries] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [totalProgress, setTotalProgress] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -43,56 +50,44 @@ export function BatchUploader({ onSuccess, onCancel }) {
 
   const fileInputRef = useRef(null);
 
+  const readFile = (file) => new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (event) => resolve(event.target.result);
+    reader.onerror = () => resolve(null);
+    reader.readAsText(file);
+  });
+
   const analyzeFile = useCallback(async (file) => {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
+    const content = await readFile(file);
 
-      reader.onload = (event) => {
-        const content = event.target.result;
-        const previewContent = content.slice(0, 50000);
+    if (content === null) {
+      return { status: FILE_STATUS.ERROR, error: 'Filen kunde inte läsas.' };
+    }
 
-        Papa.parse(previewContent, {
-          header: true,
-          preview: 100,
-          skipEmptyLines: true,
-          complete: (results) => {
-            let dateRange = null;
+    try {
+      const parsed = await processTikTokData(content, { filename: file.name });
 
-            const dateField = results.meta?.fields?.find(f =>
-              f.toLowerCase().includes('datum') || f.toLowerCase() === 'date'
-            );
-
-            if (dateField && results.data.length > 0) {
-              const dates = [];
-              results.data.forEach(row => {
-                const val = row[dateField];
-                if (val) {
-                  try {
-                    const d = new Date(val);
-                    if (!isNaN(d.getTime())) dates.push(d);
-                  } catch (e) { /* ignore */ }
-                }
-              });
-
-              if (dates.length > 0) {
-                dates.sort((a, b) => a - b);
-                dateRange = { startDate: dates[0], endDate: dates[dates.length - 1] };
-              }
-            }
-
-            resolve({
-              content,
-              dateRange,
-              rowCount: results.data.length
-            });
-          },
-          error: () => resolve({ content, dateRange: null, rowCount: 0 })
-        });
+      return {
+        status: FILE_STATUS.READY,
+        content,
+        parsed,
+        accountName: parsed.handle || '',
+        videoCount: parsed.meta.videoCount,
+        months: parsed.meta.months,
+        isEmptyImport: parsed.meta.isEmptyImport,
+        warnings: parsed.warnings
       };
-
-      reader.onerror = () => resolve({ content: null, dateRange: null, rowCount: 0 });
-      reader.readAsText(file);
-    });
+    } catch (err) {
+      if (err instanceof UnsupportedCsvError) {
+        return {
+          status: FILE_STATUS.UNSUPPORTED,
+          error: err.message,
+          formatLabel: err.label,
+          isLegacy: err.isLegacy
+        };
+      }
+      return { status: FILE_STATUS.ERROR, error: err.message };
+    }
   }, []);
 
   const addFiles = useCallback(async (files) => {
@@ -101,62 +96,46 @@ export function BatchUploader({ onSuccess, onCancel }) {
     for (const file of files) {
       if (!file.name.toLowerCase().endsWith('.csv')) continue;
 
-      const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const entry = {
-        id,
+      newEntries.push({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
         file,
         accountName: '',
-        dateRange: null,
         status: FILE_STATUS.ANALYZING,
         error: null,
-        rowCount: 0,
-        content: null
-      };
-      newEntries.push(entry);
+        formatLabel: null,
+        isLegacy: false,
+        content: null,
+        parsed: null,
+        videoCount: 0,
+        months: [],
+        isEmptyImport: false,
+        warnings: []
+      });
     }
 
     if (newEntries.length === 0) return;
 
     setFileEntries(prev => [...prev, ...newEntries]);
 
-    // Analyze each file
     for (const entry of newEntries) {
       const result = await analyzeFile(entry.file);
       setFileEntries(prev => prev.map(e =>
-        e.id === entry.id
-          ? {
-              ...e,
-              status: FILE_STATUS.READY,
-              dateRange: result.dateRange,
-              rowCount: result.rowCount,
-              content: result.content
-            }
-          : e
+        e.id === entry.id ? { ...e, ...result } : e
       ));
     }
   }, [analyzeFile]);
 
   const handleFileInputChange = (e) => {
-    const files = Array.from(e.target.files || []);
-    addFiles(files);
+    addFiles(Array.from(e.target.files || []));
     e.target.value = '';
   };
 
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
-
+  const handleDragOver = (e) => { e.preventDefault(); setIsDragging(true); };
+  const handleDragLeave = (e) => { e.preventDefault(); setIsDragging(false); };
   const handleDrop = (e) => {
     e.preventDefault();
     setIsDragging(false);
-    const files = Array.from(e.dataTransfer.files || []);
-    addFiles(files);
+    addFiles(Array.from(e.dataTransfer.files || []));
   };
 
   const handleRemoveFile = (id) => {
@@ -167,20 +146,19 @@ export function BatchUploader({ onSuccess, onCancel }) {
     setFileEntries(prev => prev.map(e => e.id === id ? { ...e, accountName: name } : e));
   };
 
-  const canProcess = fileEntries.length > 0 &&
-    fileEntries.every(e => e.accountName.trim() !== '') &&
-    fileEntries.some(e => e.status === FILE_STATUS.READY || e.status === FILE_STATUS.DONE) &&
+  const readyEntries = fileEntries.filter(e => e.status === FILE_STATUS.READY);
+  const unsupportedEntries = fileEntries.filter(e => e.status === FILE_STATUS.UNSUPPORTED);
+  const legacyCount = unsupportedEntries.filter(e => e.isLegacy).length;
+
+  const canProcess = readyEntries.length > 0 &&
+    readyEntries.every(e => e.accountName.trim() !== '') &&
     !isProcessing;
 
   const handleProcessAll = async () => {
-    const readyEntries = fileEntries.filter(e => e.status === FILE_STATUS.READY);
-
     if (readyEntries.length === 0) return;
 
-    // Validate all have account names
-    const missing = readyEntries.filter(e => !e.accountName.trim());
-    if (missing.length > 0) {
-      setGlobalError('Alla filer måste ha ett kontonamn');
+    if (readyEntries.some(e => !e.accountName.trim())) {
+      setGlobalError('Alla filer som ska bearbetas måste ha ett kontonamn');
       return;
     }
 
@@ -189,37 +167,23 @@ export function BatchUploader({ onSuccess, onCancel }) {
     setTotalProgress(0);
 
     let processed = 0;
-    const total = readyEntries.length;
+    let anyDone = false;
 
     for (const entry of readyEntries) {
-      // Mark as processing
       setFileEntries(prev => prev.map(e =>
         e.id === entry.id ? { ...e, status: FILE_STATUS.PROCESSING } : e
       ));
 
       try {
-        if (!entry.content) {
-          throw new Error('Ingen data att bearbeta');
-        }
+        const parsed = entry.parsed;
+        if (!parsed) throw new Error('Ingen data att bearbeta');
 
-        // Process CSV
-        const result = await processTikTokData(entry.content);
-
-        if (!result.data || result.data.length === 0) {
-          throw new Error('Ingen data hittades i filen');
-        }
-
-        // Find or create account
         const accounts = await getAccounts();
         const accountName = entry.accountName.trim();
         let account = accounts.find(a => a.name.toLowerCase() === accountName.toLowerCase());
 
-        let mergeData = false;
-        if (account) {
-          // Account already exists - merge data (deduplicating by date)
-          mergeData = true;
-        } else {
-          // Create new account
+        const mergeData = Boolean(account);
+        if (!account) {
           account = await saveAccount({
             name: accountName,
             createdAt: Date.now(),
@@ -227,55 +191,88 @@ export function BatchUploader({ onSuccess, onCancel }) {
           });
         }
 
-        await saveAccountData(account.id, result.data, { merge: mergeData });
+        const saved = await saveAccountData(
+          account.id,
+          { videos: parsed.videos, months: parsed.months },
+          { merge: mergeData }
+        );
 
+        if (!saved) throw new Error('Data kunde inte sparas');
+
+        anyDone = true;
         setFileEntries(prev => prev.map(e =>
-          e.id === entry.id
-            ? { ...e, status: FILE_STATUS.DONE, rowCount: result.data.length }
-            : e
+          e.id === entry.id ? { ...e, status: FILE_STATUS.DONE } : e
         ));
       } catch (err) {
         console.error(`Fel vid bearbetning av ${entry.file.name}:`, err);
         setFileEntries(prev => prev.map(e =>
-          e.id === entry.id
-            ? { ...e, status: FILE_STATUS.ERROR, error: err.message }
-            : e
+          e.id === entry.id ? { ...e, status: FILE_STATUS.ERROR, error: err.message } : e
         ));
       }
 
       processed++;
-      setTotalProgress(Math.round((processed / total) * 100));
+      setTotalProgress(Math.round((processed / readyEntries.length) * 100));
     }
 
     setIsProcessing(false);
 
-    // Check if any succeeded
-    const doneEntries = fileEntries.filter(e => e.status === FILE_STATUS.DONE || e.status === FILE_STATUS.PROCESSING);
-    // Re-check after state update
-
-    setTimeout(() => {
-      setFileEntries(current => {
-        const anyDone = current.some(e => e.status === FILE_STATUS.DONE);
-        if (anyDone && onSuccess) {
-          onSuccess();
-        }
-        return current;
-      });
-    }, 300);
+    if (anyDone && onSuccess) {
+      onSuccess();
+    }
   };
 
-  const getStatusBadge = (entry) => {
+  const renderStatus = (entry) => {
     switch (entry.status) {
       case FILE_STATUS.ANALYZING:
-        return <span className="text-xs text-yellow-600 flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Analyserar...</span>;
+        return (
+          <span className="text-xs text-yellow-700 flex items-center gap-1">
+            <Loader2 className="h-3 w-3 animate-spin" />Analyserar...
+          </span>
+        );
+
       case FILE_STATUS.READY:
-        return <span className="text-xs text-blue-600">Klar att bearbeta</span>;
+        return entry.isEmptyImport ? (
+          <span className="text-xs text-amber-700 flex items-center gap-1">
+            <Inbox className="h-3 w-3" />
+            Giltig fil - men inga videor publicerade denna månad
+          </span>
+        ) : (
+          <span className="text-xs text-blue-700">
+            Klar att bearbeta · {entry.videoCount} videor
+          </span>
+        );
+
+      case FILE_STATUS.UNSUPPORTED:
+        return (
+          <span className="text-xs text-red-700 flex items-center gap-1">
+            <Ban className="h-3 w-3" />{entry.formatLabel}
+          </span>
+        );
+
       case FILE_STATUS.PROCESSING:
-        return <span className="text-xs text-orange-600 flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Bearbetar...</span>;
+        return (
+          <span className="text-xs text-orange-700 flex items-center gap-1">
+            <Loader2 className="h-3 w-3 animate-spin" />Bearbetar...
+          </span>
+        );
+
       case FILE_STATUS.DONE:
-        return <span className="text-xs text-green-600 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" />Klar! {entry.rowCount} rader</span>;
+        return (
+          <span className="text-xs text-green-700 flex items-center gap-1">
+            <CheckCircle2 className="h-3 w-3" />
+            {entry.isEmptyImport
+              ? 'Importerad - månaden registrerad som tom'
+              : `Klar! ${entry.videoCount} videor`}
+          </span>
+        );
+
       case FILE_STATUS.ERROR:
-        return <span className="text-xs text-red-600 flex items-center gap-1"><AlertCircle className="h-3 w-3" />{entry.error || 'Fel'}</span>;
+        return (
+          <span className="text-xs text-red-700 flex items-center gap-1">
+            <AlertCircle className="h-3 w-3" />{entry.error || 'Fel'}
+          </span>
+        );
+
       default:
         return null;
     }
@@ -288,6 +285,25 @@ export function BatchUploader({ onSuccess, onCancel }) {
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Fel</AlertTitle>
           <AlertDescription>{globalError}</AlertDescription>
+        </Alert>
+      )}
+
+      {legacyCount > 0 && (
+        <Alert variant="destructive">
+          <Ban className="h-4 w-4" />
+          <AlertTitle>Gammalt CSV-format</AlertTitle>
+          <AlertDescription>
+            <p>
+              Det verkar som att du försöker ladda upp CSV i det gamla formatet, de
+              fungerar inte längre.
+            </p>
+            <p className="mt-2 text-sm">
+              {legacyCount === 1 ? 'Filen är' : `${legacyCount} av filerna är`} en
+              TikTok-export av den gamla typen (Översikt eller Video). Appen läser numera
+              filerna från tiktok-scrape, som innehåller sektionerna MÅNADSSUMMERING och
+              PER VIDEO. Övriga filer i listan kan bearbetas som vanligt.
+            </p>
+          </AlertDescription>
         </Alert>
       )}
 
@@ -320,7 +336,7 @@ export function BatchUploader({ onSuccess, onCancel }) {
             Dra och släpp CSV-filer här, eller klicka för att välja
           </p>
           <p className="text-xs text-muted-foreground">
-            Välj en eller flera TikTok-exportfiler (daglig översiktsdata)
+            En fil per konto och månad - flera filer går bra samtidigt
           </p>
         </div>
       </div>
@@ -333,59 +349,67 @@ export function BatchUploader({ onSuccess, onCancel }) {
               key={entry.id}
               className={cn(
                 "border rounded-lg p-4 bg-muted/10",
-                entry.status === FILE_STATUS.ERROR && "border-red-200 bg-red-50",
+                (entry.status === FILE_STATUS.ERROR || entry.status === FILE_STATUS.UNSUPPORTED)
+                  && "border-red-200 bg-red-50",
+                entry.status === FILE_STATUS.READY && entry.isEmptyImport
+                  && "border-amber-200 bg-amber-50",
                 entry.status === FILE_STATUS.DONE && "border-green-200 bg-green-50"
               )}
             >
-              <div className="flex items-start gap-3">
-                <div className="flex-1 min-w-0 space-y-2">
-                  {/* Filename */}
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-medium truncate">{entry.file.name}</p>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 shrink-0"
-                      onClick={() => handleRemoveFile(entry.id)}
-                      disabled={isProcessing}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
+              <div className="flex-1 min-w-0 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium truncate">{entry.file.name}</p>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 shrink-0"
+                    onClick={() => handleRemoveFile(entry.id)}
+                    disabled={isProcessing}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
 
-                  {/* Account name input */}
+                {entry.status === FILE_STATUS.UNSUPPORTED ? (
+                  <p className="text-sm text-red-700">{entry.error}</p>
+                ) : (
                   <div className="flex items-center gap-2">
-                    <Label htmlFor={`account-${entry.id}`} className="text-xs text-muted-foreground whitespace-nowrap">
+                    <Label
+                      htmlFor={`account-${entry.id}`}
+                      className="text-xs text-muted-foreground whitespace-nowrap"
+                    >
                       Kontonamn:
                     </Label>
                     <Input
                       id={`account-${entry.id}`}
                       value={entry.accountName}
                       onChange={(e) => handleAccountNameChange(entry.id, e.target.value)}
-                      placeholder="Ex: P3, Ekot, SVT..."
+                      placeholder="Ex: p3nyheter"
                       className="h-7 text-sm"
                       disabled={isProcessing || entry.status === FILE_STATUS.DONE}
                     />
                   </div>
+                )}
 
-                  {/* Date range and status */}
-                  <div className="flex items-center gap-4">
-                    {entry.dateRange && (
-                      <div className="flex items-center text-xs text-muted-foreground">
-                        <Calendar className="h-3 w-3 mr-1" />
-                        <span>
-                          {formatDate(entry.dateRange.startDate)} – {formatDate(entry.dateRange.endDate)}
-                        </span>
-                      </div>
-                    )}
-                    {getStatusBadge(entry)}
-                  </div>
+                <div className="flex items-center gap-4 flex-wrap">
+                  {entry.months.length > 0 && (
+                    <div className="flex items-center text-xs text-muted-foreground">
+                      <CalendarRange className="h-3 w-3 mr-1" />
+                      <span>{entry.months.join(', ')}</span>
+                    </div>
+                  )}
+                  {renderStatus(entry)}
                 </div>
+
+                {entry.warnings.length > 0 && (
+                  <ul className="text-xs text-amber-700 list-disc list-inside">
+                    {entry.warnings.map((warning, i) => <li key={i}>{warning}</li>)}
+                  </ul>
+                )}
               </div>
             </div>
           ))}
 
-          {/* Progress bar */}
           {isProcessing && (
             <div className="space-y-1">
               <div className="flex justify-between text-xs text-muted-foreground">
@@ -404,7 +428,7 @@ export function BatchUploader({ onSuccess, onCancel }) {
       )}
 
       {/* Action buttons */}
-      <div className="flex justify-between items-center pt-2">
+      <div className="flex justify-between items-center pt-2 gap-2">
         {onCancel && (
           <Button variant="outline" onClick={onCancel} disabled={isProcessing}>
             Avbryt
@@ -417,15 +441,9 @@ export function BatchUploader({ onSuccess, onCancel }) {
           className={cn(!onCancel && "w-full")}
         >
           {isProcessing ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Bearbetar...
-            </>
+            <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Bearbetar...</>
           ) : (
-            <>
-              <Play className="mr-2 h-4 w-4" />
-              Bearbeta alla ({fileEntries.filter(e => e.status === FILE_STATUS.READY).length} filer)
-            </>
+            <><Play className="mr-2 h-4 w-4" />Bearbeta alla ({readyEntries.length} filer)</>
           )}
         </Button>
       </div>

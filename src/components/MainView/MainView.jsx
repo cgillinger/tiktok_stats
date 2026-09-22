@@ -14,25 +14,36 @@ import {
   Loader2,
   LayoutDashboard,
   Trash2,
-  Upload
+  Upload,
+  Info
 } from 'lucide-react';
-import { SummaryView } from '../SummaryView/SummaryView';
 import { AccountView } from '../AccountView/AccountView';
+import { MonthView } from '../MonthView/MonthView';
+import { VideoView } from '../VideoView/VideoView';
 import { StorageStatus } from '../StorageStatus/StorageStatus';
 import { BatchUploader } from '../BatchUploader/BatchUploader';
-import { getAccounts, getAccountData, deleteAccount } from '@/utils/webStorageService';
 import {
-  SUMMARY_VIEW_AVAILABLE_FIELDS,
+  getAccounts,
+  getAccountData,
+  getAccountMonths,
+  consumeLegacyDataClearedFlag
+} from '@/utils/webStorageService';
+import {
   ACCOUNT_VIEW_AVAILABLE_FIELDS,
+  MONTH_VIEW_AVAILABLE_FIELDS,
+  VIDEO_VIEW_AVAILABLE_FIELDS,
+  ENGAGEMENT_RATE_NOTE,
   STORAGE_KEYS
 } from '@/utils/constants';
 
 export function MainView() {
   const [accounts, setAccounts] = useState([]);
-  const [allData, setAllData] = useState([]);
+  const [allVideos, setAllVideos] = useState([]);
+  const [allMonths, setAllMonths] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
+  const [legacyDataCleared, setLegacyDataCleared] = useState(false);
 
   const [activeTab, setActiveTab] = useState('accounts');
   const [activeView, setActiveView] = useState('main'); // 'main' | 'upload' | 'storage'
@@ -41,17 +52,22 @@ export function MainView() {
   const [isResetting, setIsResetting] = useState(false);
   const [resetError, setResetError] = useState(null);
 
-  // Field selection - default to interactions for both views
-  const [selectedSummaryFields, setSelectedSummaryFields] = useState(['interactions']);
-  const [selectedAccountFields, setSelectedAccountFields] = useState(['video_views', 'interactions', 'new_followers']);
-
-  // Selected account for SummaryView filter
-  const [filteredAccountId, setFilteredAccountId] = useState('all');
+  // Fältval - separat state per vy
+  const [selectedAccountFields, setSelectedAccountFields] = useState(['views', 'interactions', 'video_count']);
+  const [selectedMonthFields, setSelectedMonthFields] = useState(['views', 'interactions', 'video_count']);
+  const [selectedVideoFields, setSelectedVideoFields] = useState(['views', 'interactions']);
 
   const showSuccessMessage = (msg) => {
     setSuccessMessage(msg);
     setTimeout(() => setSuccessMessage(null), 5000);
   };
+
+  // Körs en gång vid start - flaggan konsumeras (nollställs) av anropet
+  useEffect(() => {
+    if (consumeLegacyDataClearedFlag()) {
+      setLegacyDataCleared(true);
+    }
+  }, []);
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
@@ -61,15 +77,18 @@ export function MainView() {
       const loadedAccounts = await getAccounts();
       setAccounts(loadedAccounts);
 
-      if (loadedAccounts.length > 0) {
-        const dataPromises = loadedAccounts
-          .filter(acc => acc.hasData)
-          .map(acc => getAccountData(acc.id));
+      const withData = loadedAccounts.filter(acc => acc.hasData);
 
-        const results = await Promise.all(dataPromises);
-        setAllData(results.flat());
+      if (withData.length > 0) {
+        const [videoResults, monthResults] = await Promise.all([
+          Promise.all(withData.map(acc => getAccountData(acc.id))),
+          Promise.all(withData.map(acc => getAccountMonths(acc.id))),
+        ]);
+        setAllVideos(videoResults.flat());
+        setAllMonths(monthResults.flat());
       } else {
-        setAllData([]);
+        setAllVideos([]);
+        setAllMonths([]);
       }
     } catch (err) {
       console.error('Fel vid laddning av data:', err);
@@ -135,6 +154,20 @@ export function MainView() {
     showSuccessMessage('Tvingar omstart...');
     setTimeout(() => window.location.reload(), 1000);
   };
+
+  const monthUniverseCount = new Set(allMonths.map(m => m.month)).size;
+
+  const legacyClearedAlert = legacyDataCleared && (
+    <Alert variant="info">
+      <Info className="h-4 w-4" />
+      <AlertTitle>Tidigare data har rensats</AlertTitle>
+      <AlertDescription>
+        Datan som låg lagrad var i det gamla CSV-formatet (TikToks dagliga översiktsexport),
+        som inte längre stöds. Den har rensats automatiskt - ladda upp filerna på nytt i det
+        nya formatet (en CSV per konto och månad) för att fortsätta.
+      </AlertDescription>
+    </Alert>
+  );
 
   // Reset confirmation dialog
   if (resetConfirmation) {
@@ -215,8 +248,8 @@ export function MainView() {
           <CardHeader>
             <CardTitle>Lägg till data</CardTitle>
             <CardDescription>
-              Ladda upp TikTok-exportfiler (daglig översiktsdata) för ett eller flera konton.
-              Om kontonamnet redan finns läggs data till (dubbletter på datum tas bort).
+              Ladda upp CSV-filer från tiktok-scrape - en fil per konto och månad - för ett
+              eller flera konton. Om kontonamnet redan finns läggs månaden till.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -239,16 +272,23 @@ export function MainView() {
     );
   }
 
-  // No data: show uploader directly
-  if (accounts.length === 0 || allData.length === 0) {
+  // Tomt läge: visa uppladdaren när ingen enda CSV är uppladdad - inte bara
+  // när videolistan är tom, eftersom en uppladdad men tom månad också ska
+  // gå att se i "Per månad"-vyn
+  if (allMonths.length === 0) {
     return (
       <div className="space-y-6">
         <div className="text-center mb-4">
           <h1 className="text-2xl font-bold mb-2">TikTok Statistik</h1>
           <p className="text-muted-foreground max-w-xl mx-auto">
-            Ladda upp TikTok-exportfiler (daglig översiktsdata CSV) för att börja analysera din statistik.
+            Ladda upp CSV-filer från tiktok-scrape för att börja analysera din statistik.
+            Varje fil är en export för ett konto och en månad.
           </p>
         </div>
+
+        {legacyClearedAlert && (
+          <div className="max-w-3xl mx-auto">{legacyClearedAlert}</div>
+        )}
 
         {successMessage && (
           <Alert className="bg-green-50 border-green-200 max-w-3xl mx-auto">
@@ -278,7 +318,7 @@ export function MainView() {
           </CardContent>
         </Card>
 
-        {accounts.length > 0 && allData.length === 0 && (
+        {accounts.length > 0 && allMonths.length === 0 && (
           <div className="text-center">
             <Button
               variant="ghost"
@@ -303,7 +343,7 @@ export function MainView() {
         <div>
           <h1 className="text-2xl font-bold mb-1">TikTok-statistik</h1>
           <p className="text-muted-foreground text-sm">
-            {accounts.length} konton · {allData.length.toLocaleString('sv')} rader data
+            {accounts.length} konton · {monthUniverseCount} {monthUniverseCount === 1 ? 'månad' : 'månader'} · {allVideos.length.toLocaleString('sv')} videor
           </p>
         </div>
 
@@ -333,6 +373,8 @@ export function MainView() {
       </div>
 
       {/* Messages */}
+      {legacyClearedAlert}
+
       {error && (
         <Alert variant="destructive">
           <AlertTitle>Fel</AlertTitle>
@@ -352,7 +394,8 @@ export function MainView() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-4">
           <TabsTrigger value="accounts">Per konto</TabsTrigger>
-          <TabsTrigger value="summary">Per dag</TabsTrigger>
+          <TabsTrigger value="months">Per månad</TabsTrigger>
+          <TabsTrigger value="videos">Per video</TabsTrigger>
         </TabsList>
 
         {/* Field selector card */}
@@ -380,42 +423,75 @@ export function MainView() {
               </div>
             )}
 
-            {activeTab === 'summary' && (
+            {activeTab === 'months' && (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                {Object.entries(SUMMARY_VIEW_AVAILABLE_FIELDS).map(([key, label]) => (
+                {Object.entries(MONTH_VIEW_AVAILABLE_FIELDS).map(([key, label]) => (
                   <div key={key} className="flex items-center space-x-2">
                     <Checkbox
-                      id={`sum-${key}`}
-                      checked={selectedSummaryFields.includes(key)}
+                      id={`month-${key}`}
+                      checked={selectedMonthFields.includes(key)}
                       onCheckedChange={(checked) => {
-                        setSelectedSummaryFields(prev =>
+                        setSelectedMonthFields(prev =>
                           checked ? [...prev, key] : prev.filter(f => f !== key)
                         );
                       }}
                     />
-                    <Label htmlFor={`sum-${key}`} className="text-sm">{label}</Label>
+                    <Label htmlFor={`month-${key}`} className="text-sm">{label}</Label>
                   </div>
                 ))}
               </div>
             )}
+
+            {activeTab === 'videos' && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {Object.entries(VIDEO_VIEW_AVAILABLE_FIELDS).map(([key, label]) => (
+                  <div key={key} className="flex items-center space-x-2">
+                    <Checkbox
+                      id={`video-${key}`}
+                      checked={selectedVideoFields.includes(key)}
+                      onCheckedChange={(checked) => {
+                        setSelectedVideoFields(prev =>
+                          checked ? [...prev, key] : prev.filter(f => f !== key)
+                        );
+                      }}
+                    />
+                    <Label htmlFor={`video-${key}`} className="text-sm">{label}</Label>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Engagemangsnivån har bytt nämnare - förklara den där den väljs */}
+            <p className="text-xs text-muted-foreground mt-4 pt-3 border-t">
+              <span className="font-medium text-foreground">Engagemangsnivå (%):</span>{' '}
+              {ENGAGEMENT_RATE_NOTE}
+            </p>
           </CardContent>
         </Card>
 
         <TabsContent value="accounts">
           <AccountView
-            data={allData}
+            data={allVideos}
+            months={allMonths}
             selectedFields={selectedAccountFields}
             accounts={accounts}
           />
         </TabsContent>
 
-        <TabsContent value="summary">
-          <SummaryView
-            data={allData}
-            selectedFields={selectedSummaryFields}
+        <TabsContent value="months">
+          <MonthView
+            months={allMonths}
+            videos={allVideos}
             accounts={accounts}
-            onAccountFilter={setFilteredAccountId}
-            initialSelectedAccountId={filteredAccountId}
+            selectedFields={selectedMonthFields}
+          />
+        </TabsContent>
+
+        <TabsContent value="videos">
+          <VideoView
+            videos={allVideos}
+            accounts={accounts}
+            selectedFields={selectedVideoFields}
           />
         </TabsContent>
       </Tabs>

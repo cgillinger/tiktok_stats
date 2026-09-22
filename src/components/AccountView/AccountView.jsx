@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Card, CardContent } from '../ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Button } from '../ui/button';
+import { Badge } from '../ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import {
   ArrowUpDown,
@@ -11,42 +12,52 @@ import {
   ChevronRight,
   FileDown,
   FileSpreadsheet,
-  Calculator
+  Calculator,
+  Inbox
 } from 'lucide-react';
-import { ACCOUNT_VIEW_AVAILABLE_FIELDS } from '@/utils/constants';
+import { ACCOUNT_VIEW_AVAILABLE_FIELDS, ENGAGEMENT_RATE_BASIS } from '@/utils/constants';
 import { formatNumber } from '@/utils/utils';
 import { CopyableValue } from '../ui/copyable-value';
+
+// Fält som aggregeras som medelvärde, inte summa
+const AVG_FIELDS = ['engagement_rate'];
+
+const PAGE_SIZE_OPTIONS = [
+  { value: '10', label: '10 per sida' },
+  { value: '20', label: '20 per sida' },
+  { value: '50', label: '50 per sida' },
+  { value: '100', label: '100 per sida' }
+];
+
+/**
+ * Slår ihop en lista med "ÅÅÅÅ-MM"-månader till en kort läsbar etikett.
+ * Få månader visas kommaseparerat, fler som "första – sista".
+ */
+function formatMonthsLabel(monthList) {
+  const sorted = [...monthList].sort();
+  if (sorted.length === 0) return 'Inga uppladdade månader';
+  if (sorted.length <= 3) return sorted.join(', ');
+  return `${sorted[0]} – ${sorted[sorted.length - 1]}`;
+}
 
 /**
  * Komponent för aggregerad per-konto-vy
  *
- * @param {Array} props.data - All daglig data (med accountId på varje rad)
+ * Utgår från kontolistan (inte bara videoraderna) så att konton med
+ * uppladdade månader men noll publicerade videor fortfarande visas.
+ *
+ * @param {Array} props.data - Alla videorader (med accountId på varje rad)
+ * @param {Array} props.months - Alla månadsrader (med accountId på varje rad)
  * @param {Array} props.selectedFields - Valda fält att visa
  * @param {Array} props.accounts - Lista med alla konton
  */
-export function AccountView({ data, selectedFields, accounts = [] }) {
-  const [sortConfig, setSortConfig] = useState({ key: 'video_views', direction: 'desc' });
+export function AccountView({ data, months = [], selectedFields, accounts = [] }) {
+  const [sortConfig, setSortConfig] = useState({ key: 'video_count', direction: 'desc' });
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [isLoading, setIsLoading] = useState(false);
 
-  const PAGE_SIZE_OPTIONS = [
-    { value: '10', label: '10 per sida' },
-    { value: '20', label: '20 per sida' },
-    { value: '50', label: '50 per sida' },
-    { value: '100', label: '100 per sida' }
-  ];
-
-  // Fields aggregated as average (not sum)
-  const AVG_FIELDS = ['reach', 'engagement_rate'];
-  // post_count is a row count
-  const COUNT_FIELDS = ['post_count'];
-
-  const getAccountName = (accountId) => {
-    if (!accountId) return 'Okänt konto';
-    const found = accounts.find(a => a.id === accountId);
-    return found ? found.name : 'Okänt konto';
-  };
+  const getDisplayName = (field) => ACCOUNT_VIEW_AVAILABLE_FIELDS[field] || field;
 
   const handleSort = (key) => {
     setSortConfig(current => ({
@@ -63,38 +74,58 @@ export function AccountView({ data, selectedFields, accounts = [] }) {
       : <ArrowDown className="h-4 w-4 ml-1" />;
   };
 
-  const getDisplayName = (field) => ACCOUNT_VIEW_AVAILABLE_FIELDS[field] || field;
-
-  // Aggregate data per account
+  // Aggregera videorader per konto, utgå från kontolistan
   const { aggregatedData, totals } = useMemo(() => {
-    if (!data || !Array.isArray(data) || data.length === 0) {
+    if (!accounts || accounts.length === 0) {
       return { aggregatedData: [], totals: {} };
     }
 
-    // Group by accountId
-    const groups = {};
-    data.forEach(item => {
-      const accountId = item.accountId || 'unknown';
-      if (!groups[accountId]) {
-        groups[accountId] = [];
-      }
-      groups[accountId].push(item);
+    // Gruppera videor per konto
+    const videoGroups = {};
+    (data || []).forEach(item => {
+      const accountId = item.accountId;
+      if (!accountId) return;
+      if (!videoGroups[accountId]) videoGroups[accountId] = [];
+      videoGroups[accountId].push(item);
     });
 
-    // Aggregate each group
-    const aggregated = Object.entries(groups).map(([accountId, items]) => {
-      const row = { accountId, name: getAccountName(accountId) };
+    // Gruppera uppladdade månader per konto
+    const monthGroups = {};
+    (months || []).forEach(m => {
+      const accountId = m.accountId;
+      if (!accountId) return;
+      if (!monthGroups[accountId]) monthGroups[accountId] = [];
+      monthGroups[accountId].push(m);
+    });
+
+    // Bara konton som faktiskt har uppladdad data tas med
+    const relevantAccounts = accounts.filter(acc =>
+      acc.hasData || monthGroups[acc.id] || videoGroups[acc.id]
+    );
+
+    const aggregated = relevantAccounts.map(acc => {
+      const items = videoGroups[acc.id] || [];
+      const accMonths = monthGroups[acc.id] || [];
+
+      const row = {
+        accountId: acc.id,
+        name: acc.name,
+        video_count: items.length,
+        month_count: accMonths.length,
+        monthsLabel: formatMonthsLabel(accMonths.map(m => m.month)),
+      };
 
       selectedFields.forEach(field => {
-        if (field === 'post_count') {
-          row.post_count = items.length;
+        if (field === 'video_count') {
+          row.video_count = items.length;
+        } else if (field === 'month_count') {
+          row.month_count = accMonths.length;
         } else if (AVG_FIELDS.includes(field)) {
           const values = items.map(i => typeof i[field] === 'number' ? i[field] : 0);
           row[field] = values.length > 0
             ? parseFloat((values.reduce((s, v) => s + v, 0) / values.length).toFixed(2))
             : 0;
         } else {
-          // Sum
           row[field] = items.reduce((sum, i) => {
             const v = i[field];
             return sum + (typeof v === 'number' ? v : 0);
@@ -128,13 +159,16 @@ export function AccountView({ data, selectedFields, accounts = [] }) {
         : String(bv).localeCompare(String(av));
     });
 
-    // Totals row
+    // Totals row - engagemangsnivå snittas bara över konton med faktiska videor
     const totalsRow = { accountId: '', name: 'Totalt' };
     selectedFields.forEach(field => {
-      if (field === 'post_count') {
-        totalsRow.post_count = sorted.reduce((s, r) => s + (r.post_count || 0), 0);
+      if (field === 'video_count') {
+        totalsRow.video_count = sorted.reduce((s, r) => s + (r.video_count || 0), 0);
+      } else if (field === 'month_count') {
+        totalsRow.month_count = sorted.reduce((s, r) => s + (r.month_count || 0), 0);
       } else if (AVG_FIELDS.includes(field)) {
-        const vals = sorted.map(r => typeof r[field] === 'number' ? r[field] : 0);
+        const withVideos = sorted.filter(r => r.video_count > 0);
+        const vals = withVideos.map(r => typeof r[field] === 'number' ? r[field] : 0);
         totalsRow[field] = vals.length > 0
           ? parseFloat((vals.reduce((s, v) => s + v, 0) / vals.length).toFixed(2))
           : 0;
@@ -147,7 +181,7 @@ export function AccountView({ data, selectedFields, accounts = [] }) {
     });
 
     return { aggregatedData: sorted, totals: totalsRow };
-  }, [data, selectedFields, sortConfig, accounts]);
+  }, [data, months, selectedFields, sortConfig, accounts]);
 
   const paginatedData = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
@@ -159,7 +193,10 @@ export function AccountView({ data, selectedFields, accounts = [] }) {
   // Export helpers
   const formatDataForExport = () => {
     return aggregatedData.map(row => {
-      const exportRow = { 'Kontonamn': row.name };
+      const exportRow = {
+        'Kontonamn': row.name,
+        'Uppladdade månader': row.monthsLabel,
+      };
       selectedFields.forEach(field => {
         exportRow[getDisplayName(field)] = row[field] ?? '';
       });
@@ -226,7 +263,7 @@ export function AccountView({ data, selectedFields, accounts = [] }) {
     );
   }
 
-  if (!data || data.length === 0) {
+  if (aggregatedData.length === 0) {
     return (
       <Card className="p-6">
         <div className="text-center text-muted-foreground">
@@ -319,12 +356,21 @@ export function AccountView({ data, selectedFields, accounts = [] }) {
                 {/* Data rows */}
                 {paginatedData.map((row, index) => (
                   <TableRow key={`${row.accountId}-${index}`}>
-                    <TableCell className="font-medium whitespace-nowrap">
-                      {row.name}
+                    <TableCell className="font-medium">
+                      <div className="whitespace-nowrap">{row.name}</div>
+                      <div className="text-xs text-muted-foreground font-normal whitespace-nowrap">
+                        {row.monthsLabel}
+                      </div>
+                      {row.video_count === 0 && (
+                        <Badge variant="warning" className="gap-1 mt-1">
+                          <Inbox className="h-3.5 w-3.5" />
+                          Inga videor i uppladdad data
+                        </Badge>
+                      )}
                     </TableCell>
 
                     {selectedFields.map(field => (
-                      <TableCell key={field} className="text-right">
+                      <TableCell key={field} className="text-right align-top">
                         {renderValue(row, field)}
                       </TableCell>
                     ))}
@@ -379,6 +425,11 @@ export function AccountView({ data, selectedFields, accounts = [] }) {
             </div>
           </div>
         </div>
+
+        {/* Fotnot om beräkning */}
+        <p className="text-xs text-muted-foreground mt-3 px-1">
+          Engagemangsnivå (%) = {ENGAGEMENT_RATE_BASIS}
+        </p>
       </CardContent>
     </Card>
   );

@@ -14,35 +14,61 @@ En webbaserad applikation för att analysera och visualisera TikTok-statistik lo
 
 ### Dataformat som stöds
 
-Appen hanterar TikToks **dagliga översiktsdata** (CSV-export från TikTok Creator Studio):
+Appen läser CSV-filer från en egen scraper (**tiktok-scrape**), inte TikToks egna exportfiler.
+Det är **en fil per konto och månad**, med en rad per publicerad video. Filen har två sektioner:
+
+**MÅNADSSUMMERING** — en sammanfattningsrad för hela månaden, även om inga videor publicerades.
+
+**PER VIDEO** — en rad per publicerad video, med kolumnerna:
 
 | Kolumn | Beskrivning |
 |---|---|
-| Datum | Statistikdatum |
-| Videovisningar | Totalt antal videovisningar |
-| Målgrupp som nåtts | Unik räckvidd |
-| Profilvisningar | Antal profilbesök |
-| Gilla-markeringar | Antal likes |
-| Delningar | Antal delningar |
+| Filnamn | Ursprungligt filnamn för videon |
+| VideoID | TikToks video-ID |
+| Titel | Videons titel/beskrivning |
+| URL | Länk till videon på TikTok |
+| Månad | Vilken månad videon tillhör (ÅÅÅÅ-MM) |
+| Datum | Publiceringstidpunkt |
+| Visningar | Antal videovisningar |
+| Gilla | Antal likes |
 | Kommentarer | Antal kommentarer |
-| Nettotillväxt | Ny följartillväxt netto |
-| Nya följare | Antal nya följare |
-| Tappade följare | Antal tappade följare |
-| …med flera | Produktlänkar, webbplatsklick, leads m.m. |
+| Delningar | Antal delningar |
+| Interaktioner | Summan av gilla, kommentarer och delningar |
 
-Kolumnnamn på både **svenska och engelska** stöds.
+> **Obs:** TikToks gamla exportformat (Översikt och Video) stöds **inte längre**.
+> Räckvidd, profilvisningar och följarstatistik finns inte i det nya formatet.
+> Om du försöker ladda upp en gammal exportfil varnar appen tydligt i stället för
+> att importera fel eller ofullständig data.
 
 ### Vyer
 
-- **Per konto** — Aggregerad tabell med en rad per konto. Summerar videovisningar, interaktioner, följartillväxt m.m. Räckvidd och engagemangsnivå beräknas som genomsnitt.
-- **Per dag** — Daglig data för alla konton med kontofilter, sökning, sortering och paginering.
+Appen skiljer på tre tillstånd för varje konto och månad, tydligt märkta i gränssnittet:
+
+1. **Data finns** — CSV uppladdad och videor publicerade den månaden.
+2. **Tom månad** — CSV uppladdad, men inga videor publicerades (siffrorna visas som 0, med badgen "Inga videor publicerade").
+3. **CSV saknas** — ingen fil uppladdad för konto och månad (siffrorna visas som "-", med badgen "Ingen CSV uppladdad").
+
+De tre vyerna:
+
+- **Per konto** — Aggregerad tabell med en rad per konto: summerade visningar, interaktioner m.m., antal videor och antal uppladdade månader. Engagemangsnivå beräknas som genomsnitt. Konton utan publicerade videor visas ändå, med en tydlig badge.
+- **Per månad** — En rad per konto och månad, över hela månadsuniversumet av uppladdad data. Här syns tom månad och saknad CSV tydligast, med separat ikon och färg för respektive tillstånd samt en förklarande legend.
+- **Per video** — En rad per publicerad video, med klickbar länk till videon, sökning på titel/konto, kontofilter, sortering och paginering.
 
 ### Beräknade fält
-- **Interaktioner** = likes + kommentarer + delningar
-- **Engagemangsnivå (%)** = interaktioner / räckvidd × 100
+
+| Fält | Definition |
+|---|---|
+| **Interaktioner** | gilla + kommentarer + delningar |
+| **Engagemangsnivå (%)** | interaktioner / visningar × 100 |
+
+> **Observera:** engagemangsnivån räknades tidigare på räckvidd ("Målgrupp som nåtts"),
+> ett fält som inte ingår i det nya dataformatet. Nämnaren är därför visningar, och
+> värdena är inte jämförbara med siffror från äldre uttag.
+
+Definitionen visas också i appen: under fältväljaren och som fotnot under varje tabell.
 
 ### Export
-- Export till **CSV** och **Excel** från båda vyerna
+- Export till **CSV** och **Excel** från alla tre vyerna
 
 ## Teknisk översikt
 
@@ -79,16 +105,16 @@ npm run build
 
 ### Kom igång
 
-1. **Exportera data från TikTok** — Gå till TikTok Creator Studio → Analytics → exportera daglig översiktsdata som CSV
+1. **Kör tiktok-scrape** för att generera en CSV-fil per konto och månad
 2. **Öppna appen** och dra CSV-filerna till uppladdningszonen (eller klicka för att välja)
-3. **Ange kontonamn** för varje fil (t.ex. "P3", "Ekot", "SVT Nyheter")
+3. **Ange kontonamn** för varje fil (förifylls från @-handlet i URL-kolumnen, går att ändra)
 4. **Klicka "Bearbeta alla"** — konton skapas och data laddas in
-5. **Utforska statistiken** i vyerna "Per konto" och "Per dag"
+5. **Utforska statistiken** i vyerna "Per konto", "Per månad" och "Per video"
 6. **Exportera** till CSV eller Excel vid behov
 
 ### Lägga till mer data
 
-Klicka på **"Lägg till data"** i huvudvyn för att ladda upp ytterligare filer. Om ett kontonamn redan finns slås datan samman (dubbletter på datum tas bort automatiskt).
+Klicka på **"Lägg till data"** i huvudvyn för att ladda upp fler filer. Om kontonamnet redan finns läggs den nya månaden till.
 
 ### Återställa data
 

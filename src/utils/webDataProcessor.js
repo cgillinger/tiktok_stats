@@ -1,175 +1,232 @@
 /**
  * Web Data Processor
  *
- * Hanterar bearbetning av TikTok CSV-data (daglig översiktsdata).
- * Kolumnmappning är hårdkodad från OVERVIEW_FIELDS + OVERVIEW_FIELDS_ENGLISH.
+ * Läser CSV från tiktok-scrape: en fil per konto och månad, med sektionerna
+ * MÅNADSSUMMERING och PER VIDEO. Videoraderna är appens kanoniska data —
+ * alla aggregat räknas ur dem. Månadssummeringen sparas ändå, av två skäl:
+ *
+ *  1. Den är kvittot på att en CSV faktiskt är uppladdad för konto+månad,
+ *     så en månad utan publicerade videor kan visas som "tom" i stället för
+ *     att se ut som om filen saknas.
+ *  2. Den används som kontrollsumma vid import.
  */
 import Papa from 'papaparse';
 import {
-  OVERVIEW_FIELDS,
-  OVERVIEW_FIELDS_ENGLISH,
-} from './constants';
-
-// Build hardcoded column mapping (external CSV name -> internal field name)
-// Supports both Swedish and English column names
-const buildColumnMappings = () => {
-  const mappings = {};
-
-  // Swedish names
-  Object.entries(OVERVIEW_FIELDS).forEach(([internal, external]) => {
-    mappings[external] = internal;
-  });
-
-  // English names
-  Object.entries(OVERVIEW_FIELDS_ENGLISH).forEach(([internal, external]) => {
-    mappings[external] = internal;
-  });
-
-  return mappings;
-};
-
-const COLUMN_MAPPINGS = buildColumnMappings();
+  VIDEO_FIELDS,
+  MONTH_FIELDS,
+  NUMERIC_FIELDS,
+} from './constants.js';
+import {
+  CSV_FORMAT,
+  detectCsvFormat,
+  splitSections,
+  extractHandleFromUrl,
+  extractHandleFromFilename,
+} from './csvFormat.js';
 
 // ----------------------------------------
-// Data bearbetning
+// Hjälpfunktioner
 // ----------------------------------------
 
 const normalizeText = (text) => {
   if (text === null || text === undefined) return '';
   return String(text)
+    .replace(/[​-‍﻿]/g, '')
     .trim()
     .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .replace(/[\u200B-\u200D\uFEFF]/g, '');
+    .replace(/\s+/g, ' ');
 };
 
-const mapRow = (row) => {
+// Bygger extern kolumnrubrik -> internt fältnamn
+const buildMapping = (fields) => {
+  const mapping = {};
+  Object.entries(fields).forEach(([internal, external]) => {
+    mapping[normalizeText(external)] = internal;
+  });
+  return mapping;
+};
+
+const VIDEO_MAPPING = buildMapping(VIDEO_FIELDS);
+const MONTH_MAPPING = buildMapping(MONTH_FIELDS);
+
+const toNumber = (value) => {
+  if (value === null || value === undefined || value === '') return 0;
+  if (typeof value === 'number') return isNaN(value) ? 0 : value;
+
+  const cleaned = String(value).replace(/\s| /g, '').replace(/,/g, '.');
+  const num = parseFloat(cleaned);
+  return isNaN(num) ? 0 : num;
+};
+
+const calcEngagementRate = (interactions, views) => {
+  if (!views || views <= 0) return 0;
+  return parseFloat(((interactions / views) * 100).toFixed(2));
+};
+
+const mapRow = (row, mapping) => {
   const result = {};
 
   for (const [externalName, value] of Object.entries(row)) {
-    let internalName = null;
-    const normalizedExternal = normalizeText(externalName);
-
-    for (const [mappingKey, mappingValue] of Object.entries(COLUMN_MAPPINGS)) {
-      if (normalizeText(mappingKey) === normalizedExternal) {
-        internalName = mappingValue;
-        break;
-      }
-    }
-
-    if (!internalName) {
-      internalName = externalName;
-    }
-
-    let processedValue = value;
-    if (typeof value === 'string' && !isNaN(value) && value.trim() !== '') {
-      processedValue = parseFloat(value);
-    }
-
-    result[internalName] = processedValue;
+    const internalName = mapping[normalizeText(externalName)] || externalName;
+    result[internalName] = NUMERIC_FIELDS.includes(internalName)
+      ? toNumber(value)
+      : (value === null || value === undefined ? '' : String(value).trim());
   }
 
   return result;
 };
 
-const calculateOverviewFields = (row) => {
-  const result = { ...row };
+const parseSection = (csvText, mapping) => {
+  if (!csvText) return [];
 
-  const likes = parseFloat(row.likes || 0);
-  const comments = parseFloat(row.comments || 0);
-  const shares = parseFloat(row.shares || 0);
-  result.interactions = likes + comments + shares;
+  const results = Papa.parse(csvText, {
+    header: true,
+    skipEmptyLines: 'greedy',
+    dynamicTyping: false,
+  });
 
-  if (row.reach && row.reach > 0) {
-    result.engagement_rate = parseFloat(((result.interactions / row.reach) * 100).toFixed(2));
-  } else {
-    result.engagement_rate = 0;
-  }
-
-  return result;
+  return (results.data || [])
+    .map(row => mapRow(row, mapping))
+    .filter(row => Object.values(row).some(v => v !== '' && v !== 0));
 };
+
+// ----------------------------------------
+// Fel som går att visa för användaren
+// ----------------------------------------
+
+export class UnsupportedCsvError extends Error {
+  constructor(detection) {
+    super(detection.message);
+    this.name = 'UnsupportedCsvError';
+    this.format = detection.format;
+    this.label = detection.label;
+    this.isLegacy = detection.format === CSV_FORMAT.LEGACY_OVERVIEW
+      || detection.format === CSV_FORMAT.LEGACY_VIDEO;
+  }
+}
+
+// ----------------------------------------
+// Huvudfunktion
+// ----------------------------------------
 
 /**
- * Processar TikTok CSV-data (daglig översiktsdata)
+ * Processar en CSV-fil från tiktok-scrape.
+ *
  * @param {string} csvContent - CSV-innehåll
- * @returns {Promise<Object>} - Bearbetad data och metadata
+ * @param {Object} [options]
+ * @param {string} [options.filename] - Filnamn, används för kontonamn som reserv
+ * @returns {Promise<Object>} - { videos, months, handle, warnings, meta }
+ * @throws {UnsupportedCsvError} - vid gammalt eller okänt format
  */
-export const processTikTokData = (csvContent) => {
+export const processTikTokData = (csvContent, options = {}) => {
   return new Promise((resolve, reject) => {
     try {
-      Papa.parse(csvContent, {
-        header: true,
-        dynamicTyping: true,
-        skipEmptyLines: true,
-        complete: (results) => {
-          if (!results.data || results.data.length === 0) {
-            reject(new Error('Ingen data hittades i CSV-filen.'));
-            return;
-          }
+      const detection = detectCsvFormat(csvContent);
 
-          console.log('CSV-data analyserad:', {
-            rows: results.data.length,
-            columns: Object.keys(results.data[0]).length
-          });
+      if (!detection.isSupported) {
+        reject(new UnsupportedCsvError(detection));
+        return;
+      }
 
-          // Limit rows for performance
-          const maxRows = 5000;
-          let dataToProcess = results.data;
-          let isLimited = false;
+      const { monthCsv, videoCsv } = splitSections(csvContent);
 
-          if (dataToProcess.length > maxRows) {
-            console.warn(`Begränsar databearbetning till ${maxRows} rader`);
-            dataToProcess = dataToProcess.slice(0, maxRows);
-            isLimited = true;
-          }
+      const videos = parseSection(videoCsv, VIDEO_MAPPING).map(row => {
+        const interactions = row.interactions || (row.likes + row.comments + row.shares);
+        return {
+          ...row,
+          interactions,
+          engagement_rate: calcEngagementRate(interactions, row.views),
+        };
+      });
 
-          setTimeout(() => {
-            try {
-              const batchSize = 500;
-              let processedData = [];
+      const monthRows = parseSection(monthCsv, MONTH_MAPPING);
 
-              for (let i = 0; i < dataToProcess.length; i += batchSize) {
-                const batch = dataToProcess.slice(i, i + batchSize);
-                const mappedBatch = batch.map(row => mapRow(row));
-                const processedBatch = mappedBatch.map(calculateOverviewFields);
-                processedData = [...processedData, ...processedBatch];
-              }
-
-              // Find date range
-              const dates = processedData
-                .map(row => row.date)
-                .filter(date => date);
-
-              let dateRange = { startDate: null, endDate: null };
-              if (dates.length > 0) {
-                const sortedDates = [...dates].sort();
-                dateRange = {
-                  startDate: sortedDates[0],
-                  endDate: sortedDates[sortedDates.length - 1]
-                };
-              }
-
-              resolve({
-                data: processedData,
-                meta: {
-                  rowCount: processedData.length,
-                  totalRows: results.data.length,
-                  isLimited,
-                  processedAt: new Date(),
-                  dateRange,
-                  fields: results.meta.fields
-                }
-              });
-            } catch (innerError) {
-              console.error('Fel vid databearbetning:', innerError);
-              reject(innerError);
-            }
-          }, 10);
-        },
-        error: (error) => {
-          console.error('Fel vid CSV-parsning:', error);
-          reject(error);
+      // Summera videoraderna per månad - både som kontrollsumma och för att
+      // kunna fylla i månader som saknas i summeringssektionen.
+      const videoTotalsByMonth = {};
+      videos.forEach(video => {
+        const month = video.month || '';
+        if (!videoTotalsByMonth[month]) {
+          videoTotalsByMonth[month] = {
+            video_count: 0, views: 0, likes: 0, comments: 0, shares: 0, interactions: 0,
+          };
         }
+        const totals = videoTotalsByMonth[month];
+        totals.video_count += 1;
+        totals.views += video.views;
+        totals.likes += video.likes;
+        totals.comments += video.comments;
+        totals.shares += video.shares;
+        totals.interactions += video.interactions;
+      });
+
+      const warnings = [];
+      const months = [];
+      const seenMonths = new Set();
+
+      monthRows.forEach(row => {
+        if (!row.month) return;
+        seenMonths.add(row.month);
+
+        const fromVideos = videoTotalsByMonth[row.month];
+
+        if (fromVideos) {
+          // Kontrollräkna summeringen mot videoraderna
+          ['video_count', 'views', 'likes', 'comments', 'shares', 'interactions'].forEach(field => {
+            if (row[field] !== fromVideos[field]) {
+              warnings.push(
+                `${row.month}: ${MONTH_FIELDS[field]} i månadssummeringen (${row[field]}) ` +
+                `stämmer inte med summan av videoraderna (${fromVideos[field]}).`
+              );
+            }
+          });
+        }
+
+        months.push({
+          ...row,
+          video_count: row.video_count,
+          engagement_rate: calcEngagementRate(row.interactions, row.views),
+          isEmpty: row.video_count === 0,
+        });
+      });
+
+      // Månader som bara finns bland videoraderna (ingen summeringsrad)
+      Object.entries(videoTotalsByMonth).forEach(([month, totals]) => {
+        if (!month || seenMonths.has(month)) return;
+        months.push({
+          month,
+          ...totals,
+          engagement_rate: calcEngagementRate(totals.interactions, totals.views),
+          isEmpty: false,
+        });
+      });
+
+      months.sort((a, b) => String(a.month).localeCompare(String(b.month)));
+
+      const handle =
+        extractHandleFromUrl(videos.find(v => v.url)?.url) ||
+        extractHandleFromFilename(options.filename) ||
+        null;
+
+      if (months.length === 0 && videos.length === 0) {
+        reject(new Error('Filen innehåller varken månadssummering eller videorader.'));
+        return;
+      }
+
+      resolve({
+        format: detection.format,
+        videos,
+        months,
+        handle,
+        warnings,
+        meta: {
+          videoCount: videos.length,
+          monthCount: months.length,
+          months: months.map(m => m.month),
+          isEmptyImport: videos.length === 0,
+          processedAt: new Date().toISOString(),
+          filename: options.filename || null,
+        },
       });
     } catch (error) {
       console.error('Oväntat fel vid bearbetning:', error);
