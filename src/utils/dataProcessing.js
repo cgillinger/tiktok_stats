@@ -26,22 +26,22 @@ export const parseNumericValue = (value) => {
 };
 
 /**
- * Beräknar engagement rate för översiktsdata
- * (likes + comments + shares) / reach * 100
+ * Beräknar engagemangsnivå
+ * interaktioner / visningar * 100
+ *
+ * Nämnaren är visningar, inte räckvidd - scraperns data innehåller ingen
+ * räckvidd ("Målgrupp som nåtts" fanns bara i den gamla TikTok-exporten).
  */
 export const calculateEngagementRate = (data) => {
-  const interactions =
-    parseNumericValue(data.likes) +
-    parseNumericValue(data.comments) +
-    parseNumericValue(data.shares);
-  const divisor = parseNumericValue(data.reach);
+  const interactions = calculateInteractions(data);
+  const divisor = parseNumericValue(data.views);
 
   if (divisor === 0) return 0;
   return (interactions / divisor) * 100;
 };
 
 /**
- * Beräknar totala interaktioner för översiktsdata
+ * Beräknar totala interaktioner
  * likes + comments + shares
  */
 export const calculateInteractions = (data) => {
@@ -66,7 +66,7 @@ export const sortData = (data, field, direction = 'asc') => {
     if (av === null) return 1;
     if (bv === null) return -1;
 
-    if (field === 'date') {
+    if (field === 'date' || field === 'month') {
       try {
         const ad = new Date(av);
         const bd = new Date(bv);

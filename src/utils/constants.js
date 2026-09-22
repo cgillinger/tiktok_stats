@@ -1,5 +1,9 @@
 /**
  * Application-wide constants for the TikTok Statistics App
+ *
+ * Appen läser CSV från tiktok-scrape: en fil per konto och månad, med två
+ * sektioner (MÅNADSSUMMERING + PER VIDEO). De gamla TikTok-exporterna
+ * (Översikt resp. Video) stöds inte längre — se LEGACY_FORMATS.
  */
 
 // Storage keys for localStorage and IndexedDB
@@ -10,93 +14,127 @@ export const STORAGE_KEYS = {
   ACCOUNTS: 'tiktok_stats_accounts',
 
   // CSV data (for small files only, larger ones use IndexedDB)
-  OVERVIEW_DATA_PREFIX: 'tiktok_stats_overview_data_',  // + accountId
+  VIDEO_DATA_PREFIX: 'tiktok_stats_video_data_',   // + accountId
+  MONTH_DATA_PREFIX: 'tiktok_stats_month_data_',   // + accountId
+
+  // Sätts när v1-data (gamla formatet) rensats vid DB-uppgradering
+  LEGACY_DATA_CLEARED: 'tiktok_stats_legacy_data_cleared',
 
   // IndexedDB configurations
   DB_NAME: 'TikTokStatisticsDB',
-  DB_VERSION: 1,
+  DB_VERSION: 2,
   STORE_ACCOUNTS: 'accounts',
-  STORE_OVERVIEW_DATA: 'overviewData',
+  STORE_VIDEO_DATA: 'videoData',
+  STORE_MONTH_DATA: 'monthData',
+
+  // v1-store, raderas vid uppgradering till v2
+  LEGACY_STORE_OVERVIEW_DATA: 'overviewData',
 };
 
-// Översiktsfält (OVERVIEW CSV fields) - Swedish column names
-export const OVERVIEW_FIELDS = {
+// Sektionsrubriker i CSV-filen
+export const CSV_SECTIONS = {
+  MONTH: 'MÅNADSSUMMERING',
+  VIDEO: 'PER VIDEO',
+};
+
+// PER VIDEO-sektionens kolumner (CSV-namn -> internt fältnamn)
+export const VIDEO_FIELDS = {
+  'filename': 'Filnamn',
+  'video_id': 'VideoID',
+  'title': 'Titel',
+  'url': 'URL',
+  'month': 'Månad',
   'date': 'Datum',
-  'video_views': 'Videovisningar',
-  'reach': 'Målgrupp som nåtts',
-  'profile_views': 'Profilvisningar',
-  'likes': 'Gilla-markeringar',
-  'shares': 'Delningar',
+  'views': 'Visningar',
+  'likes': 'Gilla',
   'comments': 'Kommentarer',
-  'product_clicks': 'Klick på produktlänkar',
-  'product_purchase': 'Produktlänk genomför betalning',
-  'product_gmv': 'GMV för produktlänkar',
-  'website_clicks': 'Webbplatsklickar',
-  'phone_clicks': 'Telefonnummerklickar',
-  'collected_leads': 'Insamlade leads',
-  'app_download_clicks': 'Klick på nedladdningslänk för app',
-  'follower_net_growth': 'Nettotillväxt',
-  'new_followers': 'Nya följare',
-  'lost_followers': 'Tappade följare',
-};
-
-// English equivalents for overview fields
-export const OVERVIEW_FIELDS_ENGLISH = {
-  'date': 'Date',
-  'video_views': 'Video views',
-  'reach': 'Reached audience',
-  'profile_views': 'Profile views',
-  'likes': 'Likes',
-  'shares': 'Shares',
-  'comments': 'Comments',
-  'product_clicks': 'Product link clicks',
-  'product_purchase': 'Product link complete payment',
-  'product_gmv': 'Product link GMV',
-  'website_clicks': 'Website clicks',
-  'phone_clicks': 'Phone number clicks',
-  'collected_leads': 'Leads submission',
-  'app_download_clicks': 'App download link clicks',
-  'follower_net_growth': 'Net growth',
-  'new_followers': 'New followers',
-  'lost_followers': 'Lost followers',
-};
-
-// Beräknade översiktsfält
-export const OVERVIEW_CALCULATED_FIELDS = {
+  'shares': 'Delningar',
   'interactions': 'Interaktioner',
-  'engagement_rate': 'Engagemangsnivå (%)',
 };
 
-// Summary View tillgängliga fält
-export const SUMMARY_VIEW_AVAILABLE_FIELDS = {
-  'video_views': 'Videovisningar',
-  'reach': 'Målgrupp som nåtts',
-  'profile_views': 'Profilvisningar',
-  'likes': 'Gilla-markeringar',
+// MÅNADSSUMMERING-sektionens kolumner (CSV-namn -> internt fältnamn)
+export const MONTH_FIELDS = {
+  'month': 'Månad',
+  'video_count': 'Videor',
+  'interactions': 'Interaktioner',
+  'likes': 'Gilla',
+  'comments': 'Kommentarer',
+  'shares': 'Delningar',
+  'views': 'Visningar',
+};
+
+// Fält som alltid tolkas som tal
+export const NUMERIC_FIELDS = [
+  'views', 'likes', 'comments', 'shares', 'interactions', 'video_count',
+];
+
+// Mätvärden som går att välja i vyerna
+export const METRIC_FIELDS = {
+  'views': 'Visningar',
+  'likes': 'Gilla',
   'comments': 'Kommentarer',
   'shares': 'Delningar',
   'interactions': 'Interaktioner',
   'engagement_rate': 'Engagemangsnivå (%)',
-  'follower_net_growth': 'Nettotillväxt',
-  'new_followers': 'Nya följare',
-  'lost_followers': 'Tappade följare',
 };
 
-// Account View tillgängliga fält (aggregerade per konto)
+// Per konto-vyn (aggregerat över alla uppladdade månader)
 export const ACCOUNT_VIEW_AVAILABLE_FIELDS = {
-  'video_views': 'Videovisningar',
-  'reach': 'Räckvidd (snitt)',
-  'profile_views': 'Profilvisningar',
-  'likes': 'Gilla-markeringar',
-  'comments': 'Kommentarer',
-  'shares': 'Delningar',
-  'interactions': 'Interaktioner',
-  'engagement_rate': 'Engagemangsnivå (%)',
-  'new_followers': 'Nya följare',
-  'lost_followers': 'Tappade följare',
-  'follower_net_growth': 'Nettotillväxt',
-  'post_count': 'Antal dagar',
+  ...METRIC_FIELDS,
+  'video_count': 'Antal videor',
+  'month_count': 'Antal månader',
 };
+
+// Per månad-vyn (en rad per konto och månad)
+export const MONTH_VIEW_AVAILABLE_FIELDS = {
+  ...METRIC_FIELDS,
+  'video_count': 'Antal videor',
+};
+
+// Per video-vyn (en rad per video)
+export const VIDEO_VIEW_AVAILABLE_FIELDS = {
+  ...METRIC_FIELDS,
+};
+
+/**
+ * Hur engagemangsnivån räknas ut i det nya formatet.
+ * Gamla formatet hade räckvidd ("Målgrupp som nåtts") som nämnare — den
+ * finns inte i scraperns data, så nämnaren är visningar.
+ */
+export const ENGAGEMENT_RATE_BASIS = 'Interaktioner / visningar × 100';
+
+/**
+ * Längre förklaring, visas där måttet väljs. Nämnaren har bytt sedan det gamla
+ * formatet, så siffrorna är inte jämförbara med äldre uttag.
+ */
+export const ENGAGEMENT_RATE_NOTE =
+  'Interaktioner (gilla + kommentarer + delningar) delat med visningar, gånger 100. ' +
+  'Räknades tidigare på räckvidd, som inte ingår i det nya dataformatet - värdena är ' +
+  'därför inte jämförbara med äldre uttag.';
+
+/**
+ * Signaturer för de gamla TikTok-exporterna. Används enbart för att kunna
+ * ge användaren ett begripligt felmeddelande - formaten stöds inte längre.
+ */
+export const LEGACY_FORMATS = {
+  legacy_overview: {
+    label: 'Översikt (daglig statistik)',
+    signatures: [
+      ['datum', 'videovisningar'],
+      ['date', 'video views'],
+    ],
+  },
+  legacy_video: {
+    label: 'Video (en rad per video)',
+    signatures: [
+      ['videotitel', 'publiceringstid'],
+      ['video title', 'post time'],
+    ],
+  },
+};
+
+export const LEGACY_FORMAT_MESSAGE =
+  'Det verkar som att du försöker ladda upp CSV i det gamla formatet, de fungerar inte längre.';
 
 // Lagrings begränsningar
 export const STORAGE_LIMITS = {

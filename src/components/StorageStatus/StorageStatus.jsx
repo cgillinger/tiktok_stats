@@ -125,8 +125,8 @@ export function StorageStatus() {
                   <span>{storageStats.indexedDB.accountsCount}</span>
                 </li>
                 <li className="flex justify-between">
-                  <span>Översiktsdata:</span>
-                  <span>{storageStats.indexedDB.overviewDataCount} dataset</span>
+                  <span>Statistikrader:</span>
+                  <span>{storageStats.indexedDB.videoDataCount} videor · {storageStats.indexedDB.monthDataCount} månader</span>
                 </li>
               </ul>
             </div>
