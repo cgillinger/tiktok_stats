@@ -13,11 +13,14 @@ import {
   FileDown,
   FileSpreadsheet,
   Calculator,
-  Inbox
+  Inbox,
+  ExternalLink
 } from 'lucide-react';
 import { ACCOUNT_VIEW_AVAILABLE_FIELDS, ENGAGEMENT_RATE_BASIS } from '@/utils/constants';
 import { formatNumber } from '@/utils/utils';
+import { extractHandleFromUrl } from '@/utils/csvFormat';
 import { CopyableValue } from '../ui/copyable-value';
+import { ProfileIcon } from '../ui/profile-icon';
 
 // Fält som aggregeras som medelvärde, inte summa
 const AVG_FIELDS = ['engagement_rate'];
@@ -107,9 +110,14 @@ export function AccountView({ data, months = [], selectedFields, accounts = [] }
       const items = videoGroups[acc.id] || [];
       const accMonths = monthGroups[acc.id] || [];
 
+      // Handle för TikTok-länken: sparat handle vinner, annars härlett ur
+      // första videons URL. Saknas båda visas ingen länk.
+      const handle = acc.handle || extractHandleFromUrl(items[0]?.url) || null;
+
       const row = {
         accountId: acc.id,
         name: acc.name,
+        handle,
         video_count: items.length,
         month_count: accMonths.length,
         monthsLabel: formatMonthsLabel(accMonths.map(m => m.month)),
@@ -301,7 +309,7 @@ export function AccountView({ data, months = [], selectedFields, accounts = [] }
               <TableHeader>
                 <TableRow>
                   <TableHead
-                    className="cursor-pointer hover:bg-muted/50 whitespace-nowrap"
+                    className="cursor-pointer hover:bg-muted/50 whitespace-nowrap min-w-[200px]"
                     onClick={() => handleSort('name')}
                   >
                     <div className="flex items-center">
@@ -357,16 +365,35 @@ export function AccountView({ data, months = [], selectedFields, accounts = [] }
                 {paginatedData.map((row, index) => (
                   <TableRow key={`${row.accountId}-${index}`}>
                     <TableCell className="font-medium">
-                      <div className="whitespace-nowrap">{row.name}</div>
-                      <div className="text-xs text-muted-foreground font-normal whitespace-nowrap">
-                        {row.monthsLabel}
+                      <div className="flex items-center gap-2">
+                        <ProfileIcon name={row.name} handle={row.handle} size="sm" />
+                        <div>
+                          <div className="flex items-center gap-1.5 whitespace-nowrap">
+                            <span>{row.name}</span>
+                            {row.handle && (
+                              <a
+                                href={`https://www.tiktok.com/@${row.handle}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title="Öppna kontot på TikTok"
+                                aria-label="Öppna kontot på TikTok"
+                                className="text-primary hover:underline inline-flex"
+                              >
+                                <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                              </a>
+                            )}
+                          </div>
+                          <div className="text-xs text-muted-foreground font-normal whitespace-nowrap">
+                            {row.handle ? `@${row.handle} · ` : ''}{row.monthsLabel}
+                          </div>
+                          {row.video_count === 0 && (
+                            <Badge variant="warning" className="gap-1 mt-1">
+                              <Inbox className="h-3.5 w-3.5" />
+                              Inga videor i uppladdad data
+                            </Badge>
+                          )}
+                        </div>
                       </div>
-                      {row.video_count === 0 && (
-                        <Badge variant="warning" className="gap-1 mt-1">
-                          <Inbox className="h-3.5 w-3.5" />
-                          Inga videor i uppladdad data
-                        </Badge>
-                      )}
                     </TableCell>
 
                     {selectedFields.map(field => (
