@@ -34,6 +34,8 @@ const THEME = {
   textMuted: '#6B7280',
   accent: '#E11D62',
   barTrack: '#E9EBEF',
+  thumbWidth: 96,
+  thumbHeight: 128,
 };
 
 const formatNumber = (value) => {
@@ -145,27 +147,51 @@ const drawProfileIcon = (ctx, x, y, size, { label, color }) => {
 };
 
 /**
- * Ritar en miniatyrbild beskuren till en kvadrat med rundade hörn.
- * TikTok-bilder är stående (9:16), så vi beskär mitten på höjden.
+ * Ritar en miniatyrbild i en ruta med fast storlek, utan att beskära den.
+ *
+ * TikTok levererar omslagen i både 9:16 och 3:4. Att tvinga in dem i samma
+ * format med beskärning klipper bort text i kanterna, och att låta bredden
+ * variera gör listan ojämn. Bilden skalas därför så att hela ryms, och en
+ * suddad kopia fyller ut resten av rutan.
  */
-const drawThumbnail = (ctx, image, x, y, size) => {
+const drawThumbnail = (ctx, image, x, y, boxWidth, boxHeight) => {
   if (!image || !image.width || !image.height) return;
 
   ctx.save();
-  roundedRect(ctx, x, y, size, size, 6);
+  roundedRect(ctx, x, y, boxWidth, boxHeight, 8);
   ctx.clip();
 
-  const scale = Math.max(size / image.width, size / image.height);
+  // Bakgrund: beskuren och suddad kopia, som fyller hela rutan
+  const coverScale = Math.max(boxWidth / image.width, boxHeight / image.height) * 1.25;
+  const coverWidth = image.width * coverScale;
+  const coverHeight = image.height * coverScale;
+
+  const supportsFilter = typeof ctx.filter === 'string';
+  if (supportsFilter) ctx.filter = 'blur(10px) brightness(0.9)';
+
+  ctx.drawImage(
+    image,
+    x + (boxWidth - coverWidth) / 2,
+    y + (boxHeight - coverHeight) / 2,
+    coverWidth,
+    coverHeight
+  );
+
+  if (supportsFilter) ctx.filter = 'none';
+
+  // Förgrund: hela bilden, centrerad
+  const scale = Math.min(boxWidth / image.width, boxHeight / image.height);
   const drawWidth = image.width * scale;
   const drawHeight = image.height * scale;
 
   ctx.drawImage(
     image,
-    x + (size - drawWidth) / 2,
-    y + (size - drawHeight) / 2,
+    x + (boxWidth - drawWidth) / 2,
+    y + (boxHeight - drawHeight) / 2,
     drawWidth,
     drawHeight
   );
+
   ctx.restore();
 };
 
@@ -186,10 +212,13 @@ export function renderLeaderboardCanvas({ title, subtitle, rows, metricLabel, fo
   const items = Array.isArray(rows) ? rows : [];
   const { scale, width, padding, rowGap, headerGap } = THEME;
 
-  // Miniatyrer och fortsättningstext kräver högre rader
+  // Miniatyrer visas i TikToks eget 9:16-format och styr radhöjden
   const hasThumbnails = items.some(row => row.thumbnail);
   const hasDetail = items.some(row => row.detail);
-  const rowHeight = hasDetail ? 124 : (hasThumbnails ? 96 : THEME.rowHeight);
+
+  const rowHeight = hasThumbnails
+    ? THEME.thumbHeight + 28
+    : (hasDetail ? 124 : THEME.rowHeight);
 
   const headerHeight = 132;
   const footerHeight = footer ? 52 : 24;
@@ -277,9 +306,15 @@ export function renderLeaderboardCanvas({ title, subtitle, rows, metricLabel, fo
     let labelX = rankX + 42;
 
     if (row.thumbnail) {
-      const thumbSize = rowHeight - 24;
-      drawThumbnail(ctx, row.thumbnail, labelX, y + 12, thumbSize);
-      labelX += thumbSize + 16;
+      drawThumbnail(
+        ctx,
+        row.thumbnail,
+        labelX,
+        y + (rowHeight - THEME.thumbHeight) / 2,
+        THEME.thumbWidth,
+        THEME.thumbHeight
+      );
+      labelX += THEME.thumbWidth + 18;
     }
 
     if (row.icon) {
