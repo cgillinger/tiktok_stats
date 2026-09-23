@@ -29,7 +29,7 @@ export const parseNumericValue = (value) => {
  * Beräknar engagemangsnivå
  * interaktioner / visningar * 100
  *
- * Nämnaren är visningar, inte räckvidd - scraperns data innehåller ingen
+ * Nämnaren är visningar, inte räckvidd - månadsfilerna innehåller ingen
  * räckvidd ("Målgrupp som nåtts" fanns bara i den gamla TikTok-exporten).
  */
 export const calculateEngagementRate = (data) => {

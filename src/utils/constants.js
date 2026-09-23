@@ -1,7 +1,7 @@
 /**
  * Application-wide constants for the TikTok Statistics App
  *
- * Appen läser CSV från tiktok-scrape: en fil per konto och månad, med två
+ * Appen läser månads-CSV: en fil per konto och månad, med två
  * sektioner (MÅNADSSUMMERING + PER VIDEO). De gamla TikTok-exporterna
  * (Översikt resp. Video) stöds inte längre — se LEGACY_FORMATS.
  */
@@ -103,7 +103,7 @@ export const VIDEO_VIEW_AVAILABLE_FIELDS = {
 /**
  * Hur engagemangsnivån räknas ut i det nya formatet.
  * Gamla formatet hade räckvidd ("Målgrupp som nåtts") som nämnare — den
- * finns inte i scraperns data, så nämnaren är visningar.
+ * finns inte i månadsfilerna, så nämnaren är visningar.
  */
 export const ENGAGEMENT_RATE_BASIS = 'Interaktioner / visningar × 100';
 

@@ -251,7 +251,7 @@ export function MainView() {
           <CardHeader>
             <CardTitle>Lägg till data</CardTitle>
             <CardDescription>
-              Ladda upp CSV-filer från tiktok-scrape - en fil per konto och månad - för ett
+              Ladda upp CSV-filer - en fil per konto och månad - för ett
               eller flera konton. Om kontonamnet redan finns läggs månaden till.
             </CardDescription>
           </CardHeader>
@@ -284,7 +284,7 @@ export function MainView() {
         <div className="text-center mb-4">
           <h1 className="text-2xl font-bold mb-2">TikTok Statistik</h1>
           <p className="text-muted-foreground max-w-xl mx-auto">
-            Ladda upp CSV-filer från tiktok-scrape för att börja analysera din statistik.
+            Ladda upp CSV-filer för att börja analysera din statistik.
             Varje fil är en export för ett konto och en månad.
           </p>
         </div>

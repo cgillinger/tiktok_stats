@@ -41,7 +41,7 @@ logs
 # Vite specific
 .vite/
 
-# Lokala CSV-dataset från tiktok-scrape (månadsmappar) - ska aldrig committas
+# Lokala CSV-dataset (månadsmappar) - ska aldrig committas
 /[0-9][0-9][0-9][0-9]-[0-9][0-9]/
 
 # Playwright MCP-artefakter

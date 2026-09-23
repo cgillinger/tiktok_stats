@@ -1,7 +1,7 @@
 /**
  * Formatdetektering och sektionsuppdelning för TikTok-CSV
  *
- * Det nuvarande formatet (från tiktok-scrape) har två sektioner i samma fil:
+ * Det nuvarande formatet (månadsfiler) har två sektioner i samma fil:
  *
  *   MÅNADSSUMMERING
  *   Månad,Videor,Interaktioner,Gilla,Kommentarer,Delningar,Visningar

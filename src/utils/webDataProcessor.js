@@ -1,7 +1,7 @@
 /**
  * Web Data Processor
  *
- * Läser CSV från tiktok-scrape: en fil per konto och månad, med sektionerna
+ * Läser månads-CSV: en fil per konto och månad, med sektionerna
  * MÅNADSSUMMERING och PER VIDEO. Videoraderna är appens kanoniska data —
  * alla aggregat räknas ur dem. Månadssummeringen sparas ändå, av två skäl:
  *
@@ -110,7 +110,7 @@ export class UnsupportedCsvError extends Error {
 // ----------------------------------------
 
 /**
- * Processar en CSV-fil från tiktok-scrape.
+ * Processar en månads-CSV-fil.
  *
  * @param {string} csvContent - CSV-innehåll
  * @param {Object} [options]
