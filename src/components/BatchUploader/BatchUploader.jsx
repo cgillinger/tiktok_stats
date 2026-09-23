@@ -32,7 +32,7 @@ const FILE_STATUS = {
 };
 
 /**
- * Batch-upload av CSV-filer från tiktok-scrape.
+ * Batch-upload av månads-CSV-filer.
  *
  * Varje fil är ett konto och en månad. Kontonamnet förifylls från @-handlet i
  * URL-kolumnen och går att ändra.
@@ -382,7 +382,7 @@ export function BatchUploader({ onSuccess, onCancel }) {
             <p className="mt-2 text-sm">
               {legacyCount === 1 ? 'Filen är' : `${legacyCount} av filerna är`} en
               TikTok-export av den gamla typen (Översikt eller Video). Appen läser numera
-              filerna från tiktok-scrape, som innehåller sektionerna MÅNADSSUMMERING och
+              månadsfiler som innehåller sektionerna MÅNADSSUMMERING och
               PER VIDEO. Övriga filer i listan kan bearbetas som vanligt.
             </p>
           </AlertDescription>
