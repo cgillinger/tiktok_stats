@@ -3,6 +3,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
 import { Label } from '../ui/label';
+import { Switch } from '../ui/switch';
 import {
   UploadCloud,
   Loader2,
@@ -14,13 +15,15 @@ import {
   Ban,
   Inbox,
   ExternalLink,
-  Download
+  Download,
+  CalendarClock
 } from 'lucide-react';
 import { saveAccountData, getAccounts, saveAccount } from '@/utils/webStorageService';
 import { processTikTokData, UnsupportedCsvError } from '@/utils/webDataProcessor';
 import { cn } from '@/utils/utils';
 import { normalizeAccountName } from '@/utils/accountNames';
 import { fetchAccountDisplayName } from '@/utils/tiktokEmbed';
+import { findStrayMonth, withoutMonth } from '@/utils/strayMonths';
 
 const FILE_STATUS = {
   ANALYZING: 'analyzing',
@@ -53,6 +56,7 @@ export function BatchUploader({ onSuccess, onCancel }) {
   const [globalError, setGlobalError] = useState(null);
   const [isFetchingNames, setIsFetchingNames] = useState(false);
   const [nameFetchProgress, setNameFetchProgress] = useState({ done: 0, total: 0 });
+  const [includeStrayMonth, setIncludeStrayMonth] = useState(false);
 
   const fileInputRef = useRef(null);
 
@@ -118,6 +122,8 @@ export function BatchUploader({ onSuccess, onCancel }) {
         months: [],
         isEmptyImport: false,
         warnings: [],
+        skippedMonth: null,
+        importedVideoCount: null,
         // Läget för uppslagning av visningsnamn mot TikTok (frivillig funktion)
         nameFetchStatus: 'idle',
         nameFetchError: null,
@@ -202,6 +208,14 @@ export function BatchUploader({ onSuccess, onCancel }) {
   const legacyCount = unsupportedEntries.filter(e => e.isLegacy).length;
   const entriesWithVideos = fileEntries.filter(hasVideoUrl);
 
+  // En ensam senare månad i några få filer är nästan alltid början på nästa
+  // månad som följt med i exporten. Den hoppas över om användaren inte väljer annat.
+  const strayMonth = findStrayMonth(readyEntries);
+  const strayFiles = strayMonth
+    ? readyEntries.filter(e => e.months.includes(strayMonth.month))
+    : [];
+  const monthToSkip = strayMonth && !includeStrayMonth ? strayMonth.month : null;
+
   const handleFetchAllNames = async () => {
     const targets = fileEntries.filter(hasVideoUrl);
     if (targets.length === 0) return;
@@ -242,8 +256,9 @@ export function BatchUploader({ onSuccess, onCancel }) {
       ));
 
       try {
-        const parsed = entry.parsed;
-        if (!parsed) throw new Error('Ingen data att bearbeta');
+        if (!entry.parsed) throw new Error('Ingen data att bearbeta');
+        const skippedMonth = monthToSkip && entry.months.includes(monthToSkip) ? monthToSkip : null;
+        const parsed = withoutMonth(entry.parsed, skippedMonth);
 
         const accounts = await getAccounts();
         const accountName = entry.accountName.trim();
@@ -283,7 +298,9 @@ export function BatchUploader({ onSuccess, onCancel }) {
 
         anyDone = true;
         setFileEntries(prev => prev.map(e =>
-          e.id === entry.id ? { ...e, status: FILE_STATUS.DONE } : e
+          e.id === entry.id
+            ? { ...e, status: FILE_STATUS.DONE, skippedMonth, importedVideoCount: parsed.videos.length }
+            : e
         ));
       } catch (err) {
         console.error(`Fel vid bearbetning av ${entry.file.name}:`, err);
@@ -344,7 +361,7 @@ export function BatchUploader({ onSuccess, onCancel }) {
             <CheckCircle2 className="h-3 w-3" />
             {entry.isEmptyImport
               ? 'Importerad - månaden registrerad som tom'
-              : `Klar! ${entry.videoCount} videor`}
+              : `Klar! ${entry.importedVideoCount ?? entry.videoCount} videor`}
           </span>
         );
 
@@ -385,6 +402,32 @@ export function BatchUploader({ onSuccess, onCancel }) {
               månadsfiler som innehåller sektionerna MÅNADSSUMMERING och
               PER VIDEO. Övriga filer i listan kan bearbetas som vanligt.
             </p>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {strayMonth && !isProcessing && (
+        <Alert className="border-amber-200 bg-amber-50">
+          <CalendarClock className="h-4 w-4" />
+          <AlertTitle>{strayMonth.month} ser ut att vara en ofullständig månad</AlertTitle>
+          <AlertDescription>
+            <p className="text-sm">
+              {strayMonth.month} finns bara i {strayMonth.fileCount} av {strayMonth.totalFiles} filer
+              ({strayFiles.map(e => e.file.name).join(', ')}), medan {strayMonth.previousMonth} finns
+              i {strayMonth.previousCount}. Det brukar betyda att exporten fått med början på nästa
+              månad. Importeras den räknas alla andra konton som att de saknar CSV
+              för {strayMonth.month}.
+            </p>
+            <div className="flex items-center space-x-2 mt-3">
+              <Switch
+                id="include-stray-month"
+                checked={includeStrayMonth}
+                onCheckedChange={setIncludeStrayMonth}
+              />
+              <Label htmlFor="include-stray-month" className="text-sm">
+                Importera {strayMonth.month} ändå
+              </Label>
+            </div>
           </AlertDescription>
         </Alert>
       )}
@@ -539,7 +582,24 @@ export function BatchUploader({ onSuccess, onCancel }) {
                   {entry.months.length > 0 && (
                     <div className="flex items-center text-xs text-muted-foreground">
                       <CalendarRange className="h-3 w-3 mr-1" />
-                      <span>{entry.months.join(', ')}</span>
+                      <span>
+                        {entry.months.map((month, i) => {
+                          const skipped = entry.status === FILE_STATUS.DONE
+                            ? entry.skippedMonth === month
+                            : entry.status === FILE_STATUS.READY && monthToSkip === month;
+                          return (
+                            <React.Fragment key={month}>
+                              {i > 0 && ', '}
+                              <span
+                                className={cn(skipped && 'line-through')}
+                                title={skipped ? 'Hoppas över vid import' : undefined}
+                              >
+                                {month}
+                              </span>
+                            </React.Fragment>
+                          );
+                        })}
+                      </span>
                     </div>
                   )}
                   {renderStatus(entry)}
