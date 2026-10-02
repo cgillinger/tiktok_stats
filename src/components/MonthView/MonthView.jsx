@@ -89,6 +89,8 @@ export function MonthView({ months = [], videos = [], accounts = [], selectedFie
   const [pageSize, setPageSize] = useState(20);
   const [isLoading, setIsLoading] = useState(false);
   const [showMissing, setShowMissing] = useState(true);
+  const [fromMonth, setFromMonth] = useState(null);   // null = tidigaste månaden
+  const [toMonth, setToMonth] = useState(null);       // null = senaste månaden
 
   const getDisplayName = (field) => MONTH_VIEW_AVAILABLE_FIELDS[field] || field;
 
@@ -119,6 +121,27 @@ export function MonthView({ months = [], videos = [], accounts = [], selectedFie
     return Array.from(set).sort((a, b) => b.localeCompare(a));
   }, [months]);
 
+  const firstMonth = monthUniverse[monthUniverse.length - 1] || null;
+  const lastMonth = monthUniverse[0] || null;
+
+  // Samma logik som i topplistan: ett tomt val betyder "så långt det finns
+  // data". Luckor räknas bara inom perioden, så att en enstaka månad utanför
+  // (t.ex. början på nästa månad i en export) inte fyller tabellen med
+  // "saknar CSV" för alla andra konton.
+  const rangeStart = fromMonth && monthUniverse.includes(fromMonth) ? fromMonth : firstMonth;
+  const rangeEndRaw = toMonth && monthUniverse.includes(toMonth) ? toMonth : lastMonth;
+  const rangeEnd = rangeEndRaw && rangeStart && rangeEndRaw < rangeStart ? rangeStart : rangeEndRaw;
+
+  const monthsInRange = useMemo(
+    () => monthUniverse.filter(m => (!rangeStart || m >= rangeStart) && (!rangeEnd || m <= rangeEnd)),
+    [monthUniverse, rangeStart, rangeEnd]
+  );
+
+  const handleRangeChange = (setter) => (value) => {
+    setter(value);
+    setCurrentPage(1);
+  };
+
   // Bygg matrisen konto × månad
   const matrixRows = useMemo(() => {
     const monthMap = new Map();
@@ -126,7 +149,7 @@ export function MonthView({ months = [], videos = [], accounts = [], selectedFie
 
     const rows = [];
     accounts.forEach(acc => {
-      monthUniverse.forEach(month => {
+      monthsInRange.forEach(month => {
         const monthRow = monthMap.get(`${acc.id}|${month}`);
         const status = !monthRow ? 'missing' : (monthRow.video_count === 0 ? 'empty' : 'data');
 
@@ -146,7 +169,7 @@ export function MonthView({ months = [], videos = [], accounts = [], selectedFie
     });
 
     return rows;
-  }, [accounts, monthUniverse, months]);
+  }, [accounts, monthsInRange, months]);
 
   // Sammanfattning oberoende av "visa saknade"-läget
   const summary = useMemo(() => {
@@ -301,11 +324,36 @@ export function MonthView({ months = [], videos = [], accounts = [], selectedFie
         {/* Toolbar */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
           <span className="text-sm text-muted-foreground">
-            {accounts.length} konton × {monthUniverse.length} {monthUniverse.length === 1 ? 'månad' : 'månader'} ·{' '}
+            {accounts.length} konton × {monthsInRange.length} {monthsInRange.length === 1 ? 'månad' : 'månader'} ·{' '}
             {summary.dataCount} med data · {summary.emptyCount} tomma · {summary.missingCount} saknar CSV
           </span>
 
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 flex-wrap">
+            {monthUniverse.length > 1 && (
+              <div className="flex items-center gap-2">
+                <Label className="text-sm whitespace-nowrap">Period</Label>
+                <Select value={rangeStart || ''} onValueChange={handleRangeChange(setFromMonth)}>
+                  <SelectTrigger className="w-[110px]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {[...monthUniverse].reverse().map(month => (
+                      <SelectItem key={month} value={month}>{month}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <span className="text-sm text-muted-foreground">–</span>
+                <Select value={rangeEnd || ''} onValueChange={handleRangeChange(setToMonth)}>
+                  <SelectTrigger className="w-[110px]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {[...monthUniverse].reverse()
+                      .filter(month => !rangeStart || month >= rangeStart)
+                      .map(month => (
+                        <SelectItem key={month} value={month}>{month}</SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             <div className="flex items-center space-x-2">
               <Switch
                 id="show-missing"
